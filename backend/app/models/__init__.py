@@ -6,6 +6,7 @@ from app.models.job import Job
 from app.models.languages import Language
 from app.models.profile import Profile
 from app.models.projects import Project
+from app.models.refresh_token import RefreshToken
 from app.models.resume import Resume
 from app.models.skills import Skill
 from app.models.usage import Usage
@@ -20,6 +21,7 @@ __all__ = [
     "Language",
     "Profile",
     "Project",
+    "RefreshToken",
     "Resume",
     "Skill",
     "Usage",

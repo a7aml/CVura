@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic
 pydantic-settings
+email-validator
 sqlalchemy[asyncio]
 asyncpg
 alembic
@@ -10,3 +11,7 @@ pyjwt
 python-multipart
 slowapi
 httpx
+google-auth
+requests
+pytest
+pytest-asyncio
