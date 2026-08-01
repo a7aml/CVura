@@ -21,6 +21,7 @@ class Job(Base):
     source: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
     company: Mapped[str | None] = mapped_column(String, nullable=True)
+    posting_url: Mapped[str | None] = mapped_column(String, nullable=True)
     raw_description: Mapped[str] = mapped_column(Text, nullable=False)
     parsed_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())

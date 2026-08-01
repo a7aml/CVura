@@ -6,7 +6,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.core.config import settings
 from app.core.security import limiter
-from app.routers import auth, profile
+from app.routers import auth, jobs, profile
 
 app = FastAPI(title="CVura API")
 
@@ -24,6 +24,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(profile.router)
+app.include_router(jobs.router)
 
 
 @app.get("/health")
