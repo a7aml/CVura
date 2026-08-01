@@ -23,3 +23,22 @@ async def create_job(db: AsyncSession, user_id: uuid.UUID, **fields) -> Job:
     await db.commit()
     await db.refresh(job)
     return job
+
+
+async def get_analyzed_by_hash(db: AsyncSession, jd_hash: str) -> Job | None:
+    stmt = (
+        select(Job)
+        .where(Job.jd_hash == jd_hash, Job.parsed_json.isnot(None))
+        .order_by(Job.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def set_analysis(db: AsyncSession, job: Job, parsed_json: dict, jd_hash: str) -> Job:
+    job.parsed_json = parsed_json
+    job.jd_hash = jd_hash
+    await db.commit()
+    await db.refresh(job)
+    return job

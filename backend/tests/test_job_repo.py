@@ -64,3 +64,56 @@ async def test_get_by_id_missing_returns_none(db_session):
 async def test_list_by_user_empty_for_unknown_user(db_session):
     result = await job_repo.list_by_user(db_session, uuid.uuid4())
     assert result == []
+
+
+async def test_get_analyzed_by_hash_returns_matching_analyzed_job(db_session):
+    user = await _make_user(db_session)
+    try:
+        job = await job_repo.create_job(
+            db_session, user.id, source="linkedin", title="A", company=None, raw_description="x"
+        )
+        analyzed = await job_repo.set_analysis(db_session, job, {"seniority": "mid"}, "hash-abc")
+
+        result = await job_repo.get_analyzed_by_hash(db_session, "hash-abc")
+        assert result is not None
+        assert result.id == analyzed.id
+        assert result.parsed_json == {"seniority": "mid"}
+    finally:
+        await _cleanup(db_session, user.id)
+
+
+async def test_get_analyzed_by_hash_ignores_unanalyzed_jobs(db_session):
+    user = await _make_user(db_session)
+    try:
+        job = await job_repo.create_job(
+            db_session, user.id, source="linkedin", title="A", company=None, raw_description="x"
+        )
+        job.jd_hash = "hash-no-analysis"
+        await db_session.commit()
+
+        result = await job_repo.get_analyzed_by_hash(db_session, "hash-no-analysis")
+        assert result is None
+    finally:
+        await _cleanup(db_session, user.id)
+
+
+async def test_get_analyzed_by_hash_returns_none_for_unknown_hash(db_session):
+    result = await job_repo.get_analyzed_by_hash(db_session, "does-not-exist")
+    assert result is None
+
+
+async def test_set_analysis_persists_parsed_json_and_hash(db_session):
+    user = await _make_user(db_session)
+    try:
+        job = await job_repo.create_job(
+            db_session, user.id, source="linkedin", title="A", company=None, raw_description="x"
+        )
+        updated = await job_repo.set_analysis(db_session, job, {"technologies": ["Python"]}, "hash-xyz")
+        assert updated.parsed_json == {"technologies": ["Python"]}
+        assert updated.jd_hash == "hash-xyz"
+
+        fetched = await job_repo.get_by_id(db_session, job.id)
+        assert fetched.parsed_json == {"technologies": ["Python"]}
+        assert fetched.jd_hash == "hash-xyz"
+    finally:
+        await _cleanup(db_session, user.id)

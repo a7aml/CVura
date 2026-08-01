@@ -13,5 +13,6 @@ slowapi
 httpx
 google-auth
 requests
+openai
 pytest
 pytest-asyncio
