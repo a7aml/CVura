@@ -1,0 +1,309 @@
+/* Scoped to .wizard-shell (the page root) so nothing here leaks into
+   AuthCallbackPage / the app-shell loading screen, which share index.css's
+   generic .button/.field/.item-card rules. Reuses index.css's --color-*
+   tokens (already dark-mode aware) and layers brand accent-2/gradient on top,
+   matching LandingPage.css / LoginPage.css. */
+.wizard-shell {
+  --accent-2: #7c3aed;
+  --accent-tint: #eef0ff;
+  --accent-gradient: linear-gradient(135deg, var(--color-primary), var(--accent-2));
+}
+
+@media (prefers-color-scheme: dark) {
+  .wizard-shell {
+    --accent-2: #a78bfa;
+    --accent-tint: rgba(139, 133, 246, 0.16);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .wizard-shell {
+    animation: wizard-shell-in 420ms ease-out both;
+  }
+}
+
+@keyframes wizard-shell-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.wizard-shell-leaving {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-shell-leaving {
+    transition: none;
+  }
+}
+
+/* ===== Header + completeness ===== */
+.completeness {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.completeness-track {
+  width: 84px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.completeness-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-gradient);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .completeness-fill {
+    transition: none;
+  }
+}
+
+.completeness-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ===== Stepper / progress (brand gradient) ===== */
+.wizard-shell .wizard-fill {
+  background: var(--accent-gradient);
+}
+
+.wizard-shell .step-btn.active .step-icon-wrap {
+  background: var(--accent-gradient);
+  box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--color-primary) 65%, transparent);
+}
+
+.wizard-shell .step-btn:not(:disabled):hover {
+  color: var(--color-text);
+}
+
+/* ===== Step transition (slide, direction-aware) ===== */
+.wizard-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .wizard-panel-inner {
+    animation: wizard-step-in-fwd 280ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+
+  .wizard-panel-inner.dir-back {
+    animation-name: wizard-step-in-back;
+  }
+}
+
+@keyframes wizard-step-in-fwd {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wizard-step-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ===== Inputs — same language as the login page ===== */
+.wizard-shell .field input,
+.wizard-shell .field textarea {
+  border: 1.5px solid var(--color-border);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.wizard-shell .field input:hover:not(:disabled),
+.wizard-shell .field textarea:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
+}
+
+.wizard-shell .field input:focus,
+.wizard-shell .field textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+/* Only style as invalid once the user has actually interacted with the
+   field — never flag a pristine, untouched required input. */
+.wizard-shell .field input:user-invalid,
+.wizard-shell .field textarea:user-invalid {
+  border-color: var(--color-error-text);
+}
+
+.wizard-shell .field input:user-invalid:focus,
+.wizard-shell .field textarea:user-invalid:focus {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-error-text) 16%, transparent);
+}
+
+/* ===== Buttons ===== */
+.wizard-shell .button-primary {
+  background: var(--accent-gradient);
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--color-primary) 60%, transparent);
+  transition: box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+}
+
+.wizard-shell .button-primary:hover:not(:disabled) {
+  box-shadow: 0 10px 22px -8px color-mix(in srgb, var(--color-primary) 68%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .wizard-shell .button-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+}
+
+.wizard-shell .button-secondary,
+.wizard-shell .button-danger {
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+/* ===== Error banner — small icon via ::before so no JSX changes needed
+   across the 8 section components that already render .error-banner ===== */
+.wizard-shell .error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wizard-shell .error-banner::before {
+  content: "!";
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-error-text);
+  color: var(--color-error-bg);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .wizard-shell .error-banner {
+    animation: wizard-shake-in 320ms ease-out both;
+  }
+}
+
+@keyframes wizard-shake-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  60% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  70% {
+    transform: translateX(-3px);
+  }
+
+  85% {
+    transform: translateX(3px);
+  }
+
+  100% {
+    transform: translateX(0);
+  }
+}
+
+/* ===== Item cards: entrance for both display cards and the edit/add form,
+   collapse-on-delete for display cards only (forms are never removed this
+   way — Cancel just swaps state instantly). Distinguished by tag: the
+   display card is a <div class="item-card">, the form is
+   <form class="form item-card">. ===== */
+@media (prefers-reduced-motion: no-preference) {
+  .wizard-shell .item-card {
+    animation: wizard-item-in 260ms ease-out both;
+  }
+}
+
+@keyframes wizard-item-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.wizard-shell div.item-card {
+  max-height: 320px;
+  overflow: hidden;
+  transition: max-height 0.22s ease, opacity 0.2s ease, transform 0.2s ease, margin-bottom 0.22s ease,
+    padding 0.22s ease, border-width 0.22s ease;
+}
+
+.wizard-shell div.item-card.item-card-removing {
+  max-height: 0;
+  opacity: 0;
+  transform: scale(0.97);
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-shell div.item-card {
+    transition: none;
+  }
+}
+
+.wizard-shell .item-card:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 25%, var(--color-border));
+}
+
+/* ===== Persistent Next/Back bar — stays reachable on small screens ===== */
+.wizard-nav {
+  position: sticky;
+  bottom: 0;
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+}
+
+@media (min-width: 720px) {
+  .wizard-nav {
+    position: static;
+    background: none;
+    backdrop-filter: none;
+  }
+}
