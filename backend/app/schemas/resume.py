@@ -55,3 +55,4 @@ class ResumeTailorOutput(BaseModel):
 class ResumeTailorResponse(ResumeTailorOutput):
     resume_id: uuid.UUID
     version: int
+    pdf_url: str | None = None

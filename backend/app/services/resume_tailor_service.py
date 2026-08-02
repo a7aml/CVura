@@ -1,9 +1,9 @@
 import uuid
 
 from app.ai import client as ai_client
-from app.repositories import profile_repo, resume_repo
+from app.repositories import profile_repo, resume_repo, user_repo
 from app.schemas.resume import ResumeTailorOutput
-from app.services import job_analysis_service, resume_selection_service
+from app.services import job_analysis_service, pdf_service, resume_selection_service
 
 
 class ProfileNotFound(Exception):
@@ -57,7 +57,52 @@ async def tailor_resume(db, user_id: uuid.UUID, job_id: uuid.UUID):
     resume = await resume_repo.create_resume(
         db, user_id, job_id, tailored.model_dump(mode="json"), tailored.match_explanation
     )
+    resume = await _attach_pdf(db, user_id, resume, profile, tailored)
     return tailored, resume
+
+
+async def _attach_pdf(db, user_id: uuid.UUID, resume, profile, tailored: ResumeTailorOutput):
+    """Best-effort: a PDF failure never fails the /tailor request. On
+    success, persists the url; on failure, the resume keeps pdf_url=None."""
+    user = await user_repo.get_by_id(db, user_id)
+    contact = _build_contact(profile, user)
+    education = [_education_to_dict(e) for e in profile.education]
+    certifications = [_certification_to_dict(c) for c in profile.certifications]
+
+    pdf_url = await pdf_service.generate_and_upload_pdf(
+        user_id, resume.id, tailored, contact, education, certifications
+    )
+    if pdf_url is None:
+        return resume
+    return await resume_repo.update_pdf_url(db, resume.id, user_id, pdf_url) or resume
+
+
+def _build_contact(profile, user) -> dict:
+    return {
+        "full_name": profile.full_name,
+        "email": user.email,
+        "phone": profile.phone,
+        "location": profile.location,
+        "linkedin_url": profile.linkedin_url,
+    }
+
+
+def _education_to_dict(education) -> dict:
+    return {
+        "school": education.school,
+        "degree": education.degree,
+        "field": education.field,
+        "start_date": education.start_date,
+        "end_date": education.end_date,
+    }
+
+
+def _certification_to_dict(certification) -> dict:
+    return {
+        "name": certification.name,
+        "issuer": certification.issuer,
+        "date_earned": certification.date_earned,
+    }
 
 
 async def _tailor_with_retry(

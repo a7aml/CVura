@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     r2_endpoint_url: str = ""
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
+    # Public base URL resumes are served from (R2 custom domain or the
+    # bucket's r2.dev URL). Distinct from r2_endpoint_url, which is the
+    # private S3 API endpoint used to upload — that endpoint is not
+    # publicly fetchable.
+    r2_public_url_base: str = ""
     ai_api_key: str = ""
 
 

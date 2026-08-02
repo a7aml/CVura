@@ -17,9 +17,10 @@ class FakeUser:
 
 
 class FakeResume:
-    def __init__(self):
+    def __init__(self, pdf_url=None):
         self.id = uuid.uuid4()
         self.version = 1
+        self.pdf_url = pdf_url
 
 
 SAMPLE_OUTPUT = ResumeTailorOutput(
@@ -62,6 +63,34 @@ def test_tailor_resume_happy_path(mock_tailor, client):
     assert body["version"] == 1
     assert body["summary"] == SAMPLE_OUTPUT.summary
     assert body["match_explanation"] == SAMPLE_OUTPUT.match_explanation
+
+
+@patch("app.routers.resumes.resume_tailor_service.tailor_resume")
+def test_tailor_resume_response_includes_pdf_url_on_success(mock_tailor, client):
+    http_client, _ = client
+    fake_resume = FakeResume(pdf_url="https://cdn.example.com/resumes/u1/r1.pdf")
+    mock_tailor.return_value = (SAMPLE_OUTPUT, fake_resume)
+
+    response = http_client.post(f"/jobs/{uuid.uuid4()}/tailor")
+
+    assert response.status_code == 200
+    assert response.json()["pdf_url"] == "https://cdn.example.com/resumes/u1/r1.pdf"
+
+
+@patch("app.routers.resumes.resume_tailor_service.tailor_resume")
+def test_tailor_resume_returns_200_with_null_pdf_url_when_pdf_generation_fails(mock_tailor, client):
+    """PDF generation failing (Typst compile error, R2 outage, etc.) must
+    not fail the request — the tailored JSON is still valid."""
+    http_client, _ = client
+    fake_resume = FakeResume(pdf_url=None)
+    mock_tailor.return_value = (SAMPLE_OUTPUT, fake_resume)
+
+    response = http_client.post(f"/jobs/{uuid.uuid4()}/tailor")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["pdf_url"] is None
+    assert body["summary"] == SAMPLE_OUTPUT.summary
 
 
 @patch("app.routers.resumes.resume_tailor_service.tailor_resume")

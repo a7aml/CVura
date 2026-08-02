@@ -38,4 +38,6 @@ async def tailor_resume(
     except resume_tailor_service.AIServiceUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
-    return ResumeTailorResponse(**tailored.model_dump(), resume_id=resume.id, version=resume.version)
+    return ResumeTailorResponse(
+        **tailored.model_dump(), resume_id=resume.id, version=resume.version, pdf_url=resume.pdf_url
+    )

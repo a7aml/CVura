@@ -14,5 +14,7 @@ httpx
 google-auth
 requests
 openai
+typst
+boto3
 pytest
 pytest-asyncio
