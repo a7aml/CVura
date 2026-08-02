@@ -15,6 +15,8 @@ node_modules/
 .plasmo/
 build/
 dist/
+extension/dev-extension-key.pem
+extension/dev-extension-key-pub.der
 
 # Editors / OS
 .vscode/
