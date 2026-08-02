@@ -6,6 +6,7 @@ from typing import Literal
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+from fastapi import Request
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from slowapi import Limiter
@@ -13,7 +14,12 @@ from slowapi.util import get_remote_address
 
 from app.core.config import settings
 
-limiter = Limiter(key_func=get_remote_address)
+# key_style="endpoint": slowapi defaults to keying by the literal URL, which
+# would let a caller bypass an AI-endpoint's rate limit just by rotating the
+# {job_id} path param. Keying by (key_func result, view function) instead
+# makes the limit apply per-user across all of that user's requests to the
+# endpoint, which is what "rate limit all AI-calling endpoints" requires.
+limiter = Limiter(key_func=get_remote_address, key_style="endpoint")
 
 _password_hasher = PasswordHasher()
 
@@ -54,6 +60,23 @@ def decode_token(token: str, expected_type: Literal["access", "refresh"]) -> dic
     if payload.get("type") != expected_type:
         raise jwt.InvalidTokenError(f"expected a {expected_type} token")
     return payload
+
+
+def user_id_key(request: Request) -> str:
+    """Rate-limit key for authenticated, AI-calling endpoints — keys by the
+    authenticated user (decoded from the access token cookie) rather than the
+    client IP, so the limit can't be bypassed by rotating IPs on one account.
+    Falls back to IP if the request has no valid access token (the route's own
+    auth dependency rejects those requests before they do any real work)."""
+    token = request.cookies.get("access_token")
+    if token:
+        try:
+            payload = decode_token(token, expected_type="access")
+        except jwt.InvalidTokenError:
+            pass
+        else:
+            return f"user:{payload['sub']}"
+    return get_remote_address(request)
 
 
 def hash_token(token: str) -> str:

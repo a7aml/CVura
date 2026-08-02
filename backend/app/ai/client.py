@@ -1,14 +1,36 @@
 """AI model calls, isolated from services logic."""
 
+import json
+
+import openai
 from openai import AsyncOpenAI
 
-from app.ai.prompts import JOB_ANALYSIS_SYSTEM_PROMPT, build_job_analysis_messages
+from app.ai.prompts import (
+    JOB_ANALYSIS_SYSTEM_PROMPT,
+    RESUME_TAILOR_SYSTEM_PROMPT,
+    build_job_analysis_messages,
+    build_resume_tailor_messages,
+)
 from app.core.config import settings
-from app.schemas.job import JobAnalysis
+from app.schemas.job import MAX_RAW_DESCRIPTION_LENGTH, JobAnalysis
+from app.schemas.resume import ResumeTailorOutput
 
 _MODEL = "gpt-5.4-mini"
 _MAX_OUTPUT_TOKENS = 2048
 _TEMPERATURE = 0.2
+
+# Same purpose as MAX_RAW_DESCRIPTION_LENGTH for job analysis: a generous cap
+# on the serialized candidate-selection payload, well below anything needed
+# for a real resume, to bound AI-provider cost/abuse.
+MAX_TAILOR_INPUT_LENGTH = 20_000
+
+# Transient failures worth retrying — a bad API key or a malformed request
+# (auth/4xx errors) would fail identically on retry, so those are excluded.
+_TRANSIENT_PROVIDER_ERRORS = (
+    openai.RateLimitError,
+    openai.APIConnectionError,  # also covers the APITimeoutError subclass
+    openai.InternalServerError,
+)
 
 _client = AsyncOpenAI(api_key=settings.ai_api_key)
 
@@ -17,15 +39,67 @@ class AIResponseInvalid(Exception):
     """The model did not return a response conforming to the requested schema."""
 
 
+class AIProviderError(Exception):
+    """The AI provider was unreachable, timed out, rate-limited, or errored."""
+
+
+class RawDescriptionTooLong(Exception):
+    """The job description exceeds the maximum length accepted for analysis."""
+
+
+class TailorInputTooLarge(Exception):
+    """The selected candidate subset exceeds the maximum size accepted for tailoring."""
+
+
 async def analyze_job_description(raw_description: str) -> JobAnalysis:
-    response = await _client.responses.parse(
-        model=_MODEL,
-        max_output_tokens=_MAX_OUTPUT_TOKENS,
-        temperature=_TEMPERATURE,
-        instructions=JOB_ANALYSIS_SYSTEM_PROMPT,
-        input=build_job_analysis_messages(raw_description),
-        text_format=JobAnalysis,
-    )
+    if len(raw_description) > MAX_RAW_DESCRIPTION_LENGTH:
+        raise RawDescriptionTooLong(
+            f"raw_description is {len(raw_description)} characters, "
+            f"exceeding the {MAX_RAW_DESCRIPTION_LENGTH}-character limit"
+        )
+
+    try:
+        response = await _client.responses.parse(
+            model=_MODEL,
+            max_output_tokens=_MAX_OUTPUT_TOKENS,
+            temperature=_TEMPERATURE,
+            instructions=JOB_ANALYSIS_SYSTEM_PROMPT,
+            input=build_job_analysis_messages(raw_description),
+            text_format=JobAnalysis,
+        )
+    except _TRANSIENT_PROVIDER_ERRORS as exc:
+        raise AIProviderError(str(exc)) from exc
+
+    if response.output_parsed is None:
+        raise AIResponseInvalid(f"model returned no parsed output (status={response.status})")
+    return response.output_parsed
+
+
+async def tailor_resume(
+    candidate_skills: list[str],
+    candidate_experience: list[dict],
+    candidate_projects: list[dict],
+    jd_context: dict,
+) -> ResumeTailorOutput:
+    messages = build_resume_tailor_messages(candidate_skills, candidate_experience, candidate_projects, jd_context)
+    input_length = len(json.dumps(messages, default=str))
+    if input_length > MAX_TAILOR_INPUT_LENGTH:
+        raise TailorInputTooLarge(
+            f"tailor input is {input_length} characters, exceeding the {MAX_TAILOR_INPUT_LENGTH}-character limit"
+        )
+
+    try:
+        response = await _client.responses.parse(
+            model=_MODEL,
+            max_output_tokens=_MAX_OUTPUT_TOKENS,
+            temperature=_TEMPERATURE,
+            instructions=RESUME_TAILOR_SYSTEM_PROMPT,
+            input=messages,
+            text_format=ResumeTailorOutput,
+        )
+    except _TRANSIENT_PROVIDER_ERRORS as exc:
+        raise AIProviderError(str(exc)) from exc
+
     if response.output_parsed is None:
         raise AIResponseInvalid(f"model returned no parsed output (status={response.status})")
     return response.output_parsed

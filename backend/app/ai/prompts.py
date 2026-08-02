@@ -1,4 +1,6 @@
-"""Prompt construction for AI job description analysis."""
+"""Prompt construction for AI job description analysis and resume tailoring."""
+
+import json
 
 JOB_ANALYSIS_SYSTEM_PROMPT = """You are a job description analyst. Extract structured information \
 from a job posting.
@@ -60,3 +62,41 @@ def build_job_analysis_messages(raw_description: str) -> list[dict]:
         {"role": "assistant", "content": _FEW_SHOT_OUTPUT},
         {"role": "user", "content": raw_description},
     ]
+
+
+RESUME_TAILOR_SYSTEM_PROMPT = """You are a resume tailoring assistant. You are given a candidate's \
+pre-selected skills, work experience, and projects — already narrowed down to what's relevant to a \
+target job — plus that job's requirements. Rewrite this material into tailored resume content.
+
+Hard rules — never violate these:
+- Only use facts provided. Do not fabricate. Omit rather than invent. Never invent a company name, \
+job title, date, skill, tool, or achievement that is not present in the input.
+- You may rephrase, reorder, and compress the given bullets and skills to better match the job's \
+language and priorities.
+- Any numeric metric (percentages, dollar amounts, counts, durations) given in the input must be \
+preserved exactly — do not round, estimate, or introduce new numbers.
+- Each experience entry should have 3-5 bullets (never more than 5; fewer than 3 only if the source \
+material genuinely does not support more).
+- Every bullet must start with a strong action verb.
+- Output must be ATS-plain text: no tables, no special characters or symbols (bullet glyphs, emoji, \
+markdown), no multi-column formatting.
+- source_experience_id and source_project_id in your output must exactly match the ids given in the \
+input — do not invent new ones or omit ones you use.
+"""
+
+
+def build_resume_tailor_messages(
+    candidate_skills: list[str],
+    candidate_experience: list[dict],
+    candidate_projects: list[dict],
+    jd_context: dict,
+) -> list[dict]:
+    """The only content sent to the model: the pre-selected candidate subset
+    plus JD context. The full profile is never passed."""
+    payload = {
+        "job": jd_context,
+        "candidate_skills": candidate_skills,
+        "candidate_experience": candidate_experience,
+        "candidate_projects": candidate_projects,
+    }
+    return [{"role": "user", "content": json.dumps(payload, default=str)}]
