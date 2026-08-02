@@ -2,9 +2,13 @@ import datetime as dt
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 _OUT_CONFIG = {"from_attributes": True}
+
+# Generous cap for a real job posting, well below anything that could be used
+# to run up AI-provider cost or abuse the /analyze endpoint.
+MAX_RAW_DESCRIPTION_LENGTH = 50_000
 
 
 class JobCreate(BaseModel):
@@ -12,7 +16,7 @@ class JobCreate(BaseModel):
     title: str
     company: str | None = None
     posting_url: str | None = None
-    raw_description: str
+    raw_description: str = Field(..., max_length=MAX_RAW_DESCRIPTION_LENGTH)
 
 
 class JobOut(JobCreate):

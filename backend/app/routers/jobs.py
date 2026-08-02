@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
-from app.core.security import limiter
+from app.core.security import limiter, user_id_key
 from app.models.user import User
 from app.schemas.job import JobCreate, JobOut
 from app.services import job_analysis_service as jobs_service
@@ -37,7 +37,7 @@ async def list_jobs(user: User = Depends(get_current_user), db: AsyncSession = D
 
 
 @router.post("/{job_id}/analyze", response_model=JobOut)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_id_key)
 async def analyze_job(
     request: Request,
     job_id: uuid.UUID,
@@ -48,5 +48,9 @@ async def analyze_job(
         return await jobs_service.analyze_job(db, user.id, job_id)
     except jobs_service.JobNotFound:
         raise NOT_FOUND
+    except jobs_service.JobDescriptionTooLong as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     except jobs_service.JobAnalysisError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    except jobs_service.AIServiceUnavailable as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))

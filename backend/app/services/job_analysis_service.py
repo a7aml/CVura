@@ -13,6 +13,14 @@ class JobAnalysisError(Exception):
     pass
 
 
+class AIServiceUnavailable(Exception):
+    pass
+
+
+class JobDescriptionTooLong(Exception):
+    pass
+
+
 # --- storage (Build Order step 3: job description extraction) ---
 
 
@@ -46,7 +54,10 @@ async def analyze_job(db, user_id: uuid.UUID, job_id: uuid.UUID):
     if cached is not None:
         return await job_repo.set_analysis(db, job, cached.parsed_json, jd_hash)
 
-    analysis = await _analyze_with_retry(job.raw_description)
+    try:
+        analysis = await _analyze_with_retry(job.raw_description)
+    except ai_client.RawDescriptionTooLong as exc:
+        raise JobDescriptionTooLong(str(exc)) from exc
     return await job_repo.set_analysis(db, job, analysis.model_dump(), jd_hash)
 
 
@@ -57,3 +68,6 @@ async def _analyze_with_retry(raw_description: str):
         except ai_client.AIResponseInvalid:
             if attempt == 1:
                 raise JobAnalysisError("AI job analysis failed validation twice") from None
+        except ai_client.AIProviderError as exc:
+            if attempt == 1:
+                raise AIServiceUnavailable("AI provider is temporarily unavailable") from exc

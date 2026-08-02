@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.ai.client import AIResponseInvalid
+from app.ai.client import AIProviderError, AIResponseInvalid, RawDescriptionTooLong
 from app.schemas.job import JobAnalysis
 from app.services import job_analysis_service
 
@@ -139,3 +139,39 @@ async def test_analyze_job_missing_job_raises_not_found(mock_repo):
 
     with pytest.raises(job_analysis_service.JobNotFound):
         await job_analysis_service.analyze_job(None, uuid.uuid4(), uuid.uuid4())
+
+
+@patch("app.ai.client.analyze_job_description")
+async def test_analyze_with_retry_recovers_from_transient_provider_error(mock_ai):
+    mock_ai.side_effect = [AIProviderError("connection reset"), SAMPLE_ANALYSIS]
+
+    result = await job_analysis_service._analyze_with_retry("some jd")
+
+    assert result is SAMPLE_ANALYSIS
+    assert mock_ai.await_count == 2
+
+
+@patch("app.ai.client.analyze_job_description")
+async def test_analyze_with_retry_raises_service_unavailable_after_two_provider_failures(mock_ai):
+    mock_ai.side_effect = AIProviderError("connection reset")
+
+    with pytest.raises(job_analysis_service.AIServiceUnavailable):
+        await job_analysis_service._analyze_with_retry("some jd")
+
+    assert mock_ai.await_count == 2
+
+
+@patch("app.ai.client.analyze_job_description")
+@patch("app.services.job_analysis_service.job_repo")
+async def test_analyze_job_rejects_oversized_description_without_calling_ai_twice(mock_repo, mock_ai):
+    user_id = uuid.uuid4()
+    job = FakeJob(user_id, raw_description="x" * 100_000)
+    mock_repo.get_by_id = AsyncMock(return_value=job)
+    mock_repo.get_analyzed_by_hash = AsyncMock(return_value=None)
+    mock_ai.side_effect = RawDescriptionTooLong("too long")
+
+    with pytest.raises(job_analysis_service.JobDescriptionTooLong):
+        await job_analysis_service.analyze_job(None, user_id, job.id)
+
+    mock_ai.assert_awaited_once()
+    mock_repo.set_analysis.assert_not_called()
