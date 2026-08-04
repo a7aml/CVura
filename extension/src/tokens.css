@@ -1,0 +1,23 @@
+/* Design tokens mirrored 1:1 from web/src/index.css (:root, lines 1-19).
+   Extension cannot import web's CSS directly (separate build/package), so
+   values are duplicated here — keep in sync if web's palette changes. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap");
+
+:root {
+  --color-bg: #fdfdfb;
+  --color-surface: #f3f1e8;
+  --color-border: #e7e4d8;
+  --color-text: #15150f;
+  --color-text-muted: #6e6d62;
+  --color-primary: #cbe000;
+  --color-primary-ink: #15150f;
+  --color-primary-hover: #b9cc00;
+  --color-primary-active: #a8ba00;
+  --color-error-bg: #fdf2f1;
+  --color-error-text: #b3261e;
+  --color-error-border: #f3cac6;
+  --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-sans: "Inter", "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --radius: 10px;
+  --radius-pill: 999px;
+}
