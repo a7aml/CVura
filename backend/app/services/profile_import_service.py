@@ -1,7 +1,9 @@
-"""Onboarding fast-path: extract a Master Career Profile directly from an
-uploaded PDF resume via AI, bypassing the manual wizard. Reuses the same
-profile create/section services the wizard uses — this module only adds PDF
-text extraction and the AI extraction call on top."""
+"""Fast-path resume import: extract a Master Career Profile directly from an
+uploaded PDF resume via AI, bypassing the manual wizard. Used both for
+onboarding (no profile yet) and for replacing an existing profile once the
+caller has confirmed the overwrite. Reuses the same profile create/update/
+section services the wizard uses — this module only adds PDF text
+extraction and the AI extraction call on top."""
 
 import io
 import uuid
@@ -9,7 +11,7 @@ import uuid
 import pypdf
 
 from app.ai import client as ai_client
-from app.schemas.profile import ProfileCreate
+from app.schemas.profile import ProfileCreate, ProfileUpdate
 from app.schemas.profile_import import MAX_UPLOAD_SIZE_BYTES, ProfileExtractionOutput
 from app.services import profile_sections_service as sections
 from app.services import profile_service
@@ -19,9 +21,10 @@ _ALLOWED_CONTENT_TYPE = "application/pdf"
 # corrupted file, etc.) rather than risk saving a near-empty profile.
 _MIN_EXTRACTED_TEXT_LENGTH = 50
 
-# Maps each extracted section to the profile_sections_service function name
-# that saves it. Looked up by name (not by direct function reference) so the
-# dispatch always goes through the current `sections` module attribute.
+# Maps each extracted section to the profile_sections_service function names
+# that save/delete it. Looked up by name (not by direct function reference)
+# so the dispatch always goes through the current `sections` module
+# attribute rather than a reference captured at import time.
 _SECTION_SAVER_NAMES = {
     "education": "add_education",
     "experiences": "add_experience",
@@ -30,6 +33,16 @@ _SECTION_SAVER_NAMES = {
     "certifications": "add_certification",
     "languages": "add_language",
     "awards": "add_award",
+}
+
+_SECTION_DELETER_NAMES = {
+    "education": "delete_education",
+    "experiences": "delete_experience",
+    "projects": "delete_project",
+    "skills": "delete_skill",
+    "certifications": "delete_certification",
+    "languages": "delete_language",
+    "awards": "delete_award",
 }
 
 
@@ -62,13 +75,23 @@ class ProfileAlreadyExists(Exception):
 
 
 async def import_resume(
-    db, user_id: uuid.UUID, filename: str, content_type: str | None, file_bytes: bytes
+    db,
+    user_id: uuid.UUID,
+    filename: str,
+    content_type: str | None,
+    file_bytes: bytes,
+    replace_existing: bool = False,
 ):
     """Validate -> extract PDF text -> AI extraction -> save. Nothing is
     written to the DB until the extracted result has passed validation, so a
-    failure at any earlier step leaves no partial profile behind."""
+    failure at any earlier step leaves no partial profile behind.
+
+    If the user already has a profile, this refuses to touch it unless
+    `replace_existing` is set — the caller must get explicit confirmation
+    first, since a successful import wholly replaces the existing profile."""
     _validate_upload(filename, content_type, file_bytes)
-    if await _has_profile(db, user_id):
+    existing_profile = await _get_existing_profile(db, user_id)
+    if existing_profile is not None and not replace_existing:
         raise ProfileAlreadyExists()
 
     resume_text = _extract_text(file_bytes)
@@ -81,7 +104,11 @@ async def import_resume(
     if not extracted.personal_info.full_name:
         raise EmptyExtraction("could not extract a name from the resume")
 
-    await profile_service.create_profile(db, user_id, _to_profile_create(extracted))
+    if existing_profile is not None:
+        await profile_service.update_profile(db, user_id, _to_profile_update(extracted))
+        await _clear_sections(db, user_id, existing_profile)
+    else:
+        await profile_service.create_profile(db, user_id, _to_profile_create(extracted))
     await _save_sections(db, user_id, extracted)
     return await profile_service.get_full_profile(db, user_id)
 
@@ -93,12 +120,11 @@ def _validate_upload(filename: str, content_type: str | None, file_bytes: bytes)
         raise FileTooLarge(f"file is {len(file_bytes)} bytes, exceeding the {MAX_UPLOAD_SIZE_BYTES}-byte limit")
 
 
-async def _has_profile(db, user_id: uuid.UUID) -> bool:
+async def _get_existing_profile(db, user_id: uuid.UUID):
     try:
-        await profile_service.get_full_profile(db, user_id)
+        return await profile_service.get_full_profile(db, user_id)
     except profile_service.ProfileNotFound:
-        return False
-    return True
+        return None
 
 
 def _extract_text(file_bytes: bytes) -> str:
@@ -130,8 +156,22 @@ def _to_profile_create(extracted: ProfileExtractionOutput) -> ProfileCreate:
     return ProfileCreate(**extracted.personal_info.model_dump())
 
 
+def _to_profile_update(extracted: ProfileExtractionOutput) -> ProfileUpdate:
+    # Every field is passed explicitly (not just the ones the resume filled
+    # in) so a replace wipes fields the new resume doesn't mention, rather
+    # than leaving stale data from the old profile mixed in.
+    return ProfileUpdate(**extracted.personal_info.model_dump())
+
+
 async def _save_sections(db, user_id: uuid.UUID, extracted: ProfileExtractionOutput) -> None:
     for field, saver_name in _SECTION_SAVER_NAMES.items():
         saver = getattr(sections, saver_name)
         for item in getattr(extracted, field):
             await saver(db, user_id, item.model_dump())
+
+
+async def _clear_sections(db, user_id: uuid.UUID, existing_profile) -> None:
+    for field, deleter_name in _SECTION_DELETER_NAMES.items():
+        deleter = getattr(sections, deleter_name)
+        for item in getattr(existing_profile, field):
+            await deleter(db, user_id, item.id)

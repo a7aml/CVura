@@ -14,7 +14,14 @@ import type {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
 
-class ApiError extends Error {}
+export class ApiError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   // FormData bodies (file uploads) must let the browser set their own
@@ -30,7 +37,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
-    throw new ApiError(body.detail ?? `Request failed with status ${response.status}`)
+    throw new ApiError(body.detail ?? `Request failed with status ${response.status}`, response.status)
   }
 
   if (response.status === 204) {
@@ -75,9 +82,10 @@ export function updateProfile(data: Partial<ProfileFields>): Promise<Profile> {
   return apiFetch<Profile>("/profile", { method: "PATCH", body: JSON.stringify(data) })
 }
 
-export function importResumeProfile(file: File): Promise<FullProfile> {
+export function importResumeProfile(file: File, replaceExisting = false): Promise<FullProfile> {
   const formData = new FormData()
   formData.append("file", file)
+  formData.append("replace_existing", String(replaceExisting))
   return apiFetch<FullProfile>("/profile/import-resume", { method: "POST", body: formData })
 }
 

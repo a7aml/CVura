@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 
-import { importResumeProfile } from "../../lib/api"
+import { ApiError, importResumeProfile } from "../../lib/api"
 import { FileTextIcon, UploadIcon } from "./wizard-icons"
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
@@ -21,11 +21,12 @@ export default function ResumeUploadForm({
   onManual,
 }: {
   onSuccess: () => void
-  onManual: () => void
+  onManual?: () => void
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingReplace, setConfirmingReplace] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -43,23 +44,33 @@ export default function ResumeUploadForm({
 
   function handleTryAnother() {
     setError(null)
+    setConfirmingReplace(false)
     setFile(null)
     if (inputRef.current) inputRef.current.value = ""
     inputRef.current?.click()
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function attemptUpload(replaceExisting: boolean) {
     if (!file) return
     setError(null)
+    setConfirmingReplace(false)
     setUploading(true)
     try {
-      await importResumeProfile(file)
+      await importResumeProfile(file, replaceExisting)
       onSuccess()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not read that resume")
+      if (err instanceof ApiError && err.status === 409 && !replaceExisting) {
+        setConfirmingReplace(true)
+      } else {
+        setError(err instanceof Error ? err.message : "Could not read that resume")
+      }
       setUploading(false)
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    await attemptUpload(false)
   }
 
   return (
@@ -94,15 +105,32 @@ export default function ResumeUploadForm({
         </div>
       )}
 
+      {confirmingReplace && (
+        <div className="error-banner" role="alert">
+          You already have a profile. Uploading this resume will replace all of it — this can't be undone.
+        </div>
+      )}
+
       <div className="upload-actions">
-        {error ? (
+        {confirmingReplace ? (
+          <>
+            <button type="button" className="button button-primary" onClick={() => attemptUpload(true)}>
+              Replace my profile
+            </button>
+            <button type="button" className="button button-secondary" onClick={() => setConfirmingReplace(false)}>
+              Cancel
+            </button>
+          </>
+        ) : error ? (
           <>
             <button type="button" className="button button-secondary" onClick={handleTryAnother}>
               Try another file
             </button>
-            <button type="button" className="button button-secondary" onClick={onManual}>
-              Fill in manually
-            </button>
+            {onManual && (
+              <button type="button" className="button button-secondary" onClick={onManual}>
+                Fill in manually
+              </button>
+            )}
           </>
         ) : (
           <button type="submit" className="button button-primary" disabled={!file || uploading}>

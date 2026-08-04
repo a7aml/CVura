@@ -5,7 +5,9 @@ import { prefersReducedMotion } from "../lib/motion"
 import type { FullProfile, User } from "../lib/types"
 import "./ProfileBuilderPage.css"
 import OnboardingChoice from "./profile/OnboardingChoice"
+import "./profile/ResumeImport.css"
 import ProfileWizard from "./profile/ProfileWizard"
+import ResumeUploadForm from "./profile/ResumeUploadForm"
 
 export default function ProfileBuilderPage({
   user,
@@ -19,6 +21,7 @@ export default function ProfileBuilderPage({
   const [loading, setLoading] = useState(true)
   const [onboardingMode, setOnboardingMode] = useState<"choice" | "manual">("choice")
   const [loggingOut, setLoggingOut] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
 
   async function refresh() {
     try {
@@ -66,6 +69,15 @@ export default function ProfileBuilderPage({
         </div>
         <div>
           <span style={{ marginRight: 12, color: "var(--color-text-muted)", fontSize: 13 }}>{user.email}</span>
+          {hasProfile && (
+            <button
+              type="button"
+              className="button button-secondary button-small"
+              style={{ marginRight: 8 }}
+              onClick={() => setShowImportModal(true)}>
+              Import from resume
+            </button>
+          )}
           <button type="button" className="button button-secondary button-small" onClick={handleLogout}>
             Log out
           </button>
@@ -76,6 +88,26 @@ export default function ProfileBuilderPage({
         <OnboardingChoice onManual={() => setOnboardingMode("manual")} onImported={refresh} />
       ) : (
         <ProfileWizard profile={profile} hasProfile={hasProfile} refresh={refresh} />
+      )}
+
+      {showImportModal && (
+        <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="modal-close"
+              aria-label="Close"
+              onClick={() => setShowImportModal(false)}>
+              ×
+            </button>
+            <ResumeUploadForm
+              onSuccess={async () => {
+                setShowImportModal(false)
+                await refresh()
+              }}
+            />
+          </div>
+        </div>
       )}
     </div>
   )

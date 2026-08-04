@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
@@ -45,20 +45,24 @@ async def update_profile(
 async def import_resume(
     request: Request,
     file: UploadFile = File(...),
+    replace_existing: bool = Form(False),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     file_bytes = await file.read()
     try:
         return await profile_import_service.import_resume(
-            db, user.id, file.filename or "", file.content_type, file_bytes
+            db, user.id, file.filename or "", file.content_type, file_bytes, replace_existing
         )
     except profile_import_service.InvalidFileType as e:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(e))
     except profile_import_service.FileTooLarge as e:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(e))
     except profile_import_service.ProfileAlreadyExists:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Profile already exists")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "A profile already exists. Resubmit with replace_existing=true to overwrite it.",
+        )
     except (profile_import_service.PDFExtractionError, profile_import_service.EmptyExtraction) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     except profile_import_service.ExtractionFailed as e:

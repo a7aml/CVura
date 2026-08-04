@@ -2,6 +2,7 @@ import datetime as dt
 import tempfile
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -58,8 +59,24 @@ def client():
     app.dependency_overrides.clear()
 
 
-def _upload(http_client, filename="resume.pdf", content=VALID_PDF, content_type="application/pdf"):
-    return http_client.post("/profile/import-resume", files={"file": (filename, content, content_type)})
+class FakeExistingProfile:
+    """Stands in for the SQLAlchemy Profile object get_full_profile returns:
+    has one stale education item, so a replace's clear-then-save behavior
+    can be asserted at the router level too."""
+
+    def __init__(self):
+        self.education = [SimpleNamespace(id=uuid.uuid4())]
+        self.experiences = []
+        self.projects = []
+        self.skills = []
+        self.certifications = []
+        self.languages = []
+        self.awards = []
+
+
+def _upload(http_client, filename="resume.pdf", content=VALID_PDF, content_type="application/pdf", replace_existing=None):
+    data = {} if replace_existing is None else {"replace_existing": str(replace_existing).lower()}
+    return http_client.post("/profile/import-resume", files={"file": (filename, content, content_type)}, data=data)
 
 
 @patch("app.services.profile_import_service.sections.add_education", new_callable=AsyncMock)
@@ -125,6 +142,30 @@ def test_import_resume_returns_409_when_profile_already_exists(mock_get, client)
     response = _upload(http_client)
 
     assert response.status_code == 409
+
+
+@patch("app.services.profile_import_service.sections.add_education", new_callable=AsyncMock)
+@patch("app.services.profile_import_service.sections.delete_education", new_callable=AsyncMock)
+@patch("app.services.profile_import_service.profile_service.update_profile", new_callable=AsyncMock)
+@patch("app.services.profile_import_service.profile_service.get_full_profile", new_callable=AsyncMock)
+@patch("app.services.profile_import_service.ai_client.extract_profile_from_resume", new_callable=AsyncMock)
+def test_import_resume_replace_existing_overwrites_profile(
+    mock_extract, mock_get, mock_update, mock_delete_education, mock_add_education, client
+):
+    http_client, _ = client
+    existing = FakeExistingProfile()
+    mock_extract.return_value = ProfileExtractionOutput(
+        personal_info=PersonalInfoExtract(full_name="Jordan Diaz"),
+        education=[EducationIn(school="State University")],
+    )
+    mock_get.side_effect = [existing, FAKE_PROFILE_OUT]
+
+    response = _upload(http_client, replace_existing=True)
+
+    assert response.status_code == 200
+    mock_update.assert_awaited_once()
+    mock_delete_education.assert_awaited_once_with(mock_update.call_args.args[0], mock_update.call_args.args[1], existing.education[0].id)
+    mock_add_education.assert_awaited_once()
 
 
 @patch("app.services.profile_import_service.profile_service.get_full_profile", new_callable=AsyncMock)
