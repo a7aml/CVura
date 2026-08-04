@@ -38,6 +38,9 @@ engine = create_async_engine(
         "ssl": build_pooler_ssl_context(),
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
+        # Without this, a stalled query (network blip, lock wait) hangs the
+        # request indefinitely — no default timeout is set server-side.
+        "command_timeout": 30,
     },
 )
 

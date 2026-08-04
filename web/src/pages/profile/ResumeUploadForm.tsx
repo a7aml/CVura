@@ -51,9 +51,8 @@ export default function ResumeUploadForm({
   }
 
   async function attemptUpload(replaceExisting: boolean) {
-    if (!file) return
+    if (!file || uploading) return
     setError(null)
-    setConfirmingReplace(false)
     setUploading(true)
     try {
       await importResumeProfile(file, replaceExisting)
@@ -62,6 +61,7 @@ export default function ResumeUploadForm({
       if (err instanceof ApiError && err.status === 409 && !replaceExisting) {
         setConfirmingReplace(true)
       } else {
+        setConfirmingReplace(false)
         setError(err instanceof Error ? err.message : "Could not read that resume")
       }
       setUploading(false)
@@ -114,10 +114,19 @@ export default function ResumeUploadForm({
       <div className="upload-actions">
         {confirmingReplace ? (
           <>
-            <button type="button" className="button button-primary" onClick={() => attemptUpload(true)}>
-              Replace my profile
+            <button
+              type="button"
+              className="button button-primary"
+              disabled={uploading}
+              onClick={() => attemptUpload(true)}>
+              {uploading && <span className="spinner" />}
+              {uploading ? "Replacing your profile…" : "Replace my profile"}
             </button>
-            <button type="button" className="button button-secondary" onClick={() => setConfirmingReplace(false)}>
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={uploading}
+              onClick={() => setConfirmingReplace(false)}>
               Cancel
             </button>
           </>

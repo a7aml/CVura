@@ -23,17 +23,31 @@ export class ApiError extends Error {
   }
 }
 
-async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function apiFetch<T>(path: string, options: RequestInit = {}, timeoutMs?: number): Promise<T> {
   // FormData bodies (file uploads) must let the browser set their own
   // multipart boundary in Content-Type — forcing application/json here
   // would break the upload.
   const isFormData = options.body instanceof FormData
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    credentials: "include",
-    cache: "no-store",
-    headers: isFormData ? options.headers : { "Content-Type": "application/json", ...options.headers },
-  })
+  const controller = timeoutMs ? new AbortController() : undefined
+  const timeoutId = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : undefined
+
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      credentials: "include",
+      cache: "no-store",
+      headers: isFormData ? options.headers : { "Content-Type": "application/json", ...options.headers },
+      signal: controller?.signal,
+    })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError("This is taking longer than expected. Please try again.", 0)
+    }
+    throw err
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId)
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
@@ -82,11 +96,17 @@ export function updateProfile(data: Partial<ProfileFields>): Promise<Profile> {
   return apiFetch<Profile>("/profile", { method: "PATCH", body: JSON.stringify(data) })
 }
 
+const IMPORT_RESUME_TIMEOUT_MS = 60_000
+
 export function importResumeProfile(file: File, replaceExisting = false): Promise<FullProfile> {
   const formData = new FormData()
   formData.append("file", file)
   formData.append("replace_existing", String(replaceExisting))
-  return apiFetch<FullProfile>("/profile/import-resume", { method: "POST", body: formData })
+  return apiFetch<FullProfile>(
+    "/profile/import-resume",
+    { method: "POST", body: formData },
+    IMPORT_RESUME_TIMEOUT_MS
+  )
 }
 
 // --- repeatable sections ---
