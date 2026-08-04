@@ -73,3 +73,31 @@ async def test_child_repo_crud(db_session, repo, table_name, fields):
         assert await repo.get_by_id(db_session, item.id) is None
     finally:
         await _cleanup(db_session, user)
+
+
+@pytest.mark.parametrize("repo,table_name,fields", CHILD_REPOS)
+async def test_child_repo_create_many_and_delete_many(db_session, repo, table_name, fields):
+    user, profile = await _make_user_and_profile(db_session)
+    try:
+        items = await repo.create_many(db_session, profile.id, [fields, fields])
+        assert len(items) == 2
+        assert all(item.profile_id == profile.id for item in items)
+        assert len(await repo.list_by_profile(db_session, profile.id)) == 2
+
+        await repo.delete_many(db_session, [item.id for item in items])
+
+        assert await repo.list_by_profile(db_session, profile.id) == []
+    finally:
+        await _cleanup(db_session, user)
+
+
+async def test_delete_many_with_empty_ids_is_a_noop(db_session):
+    user, profile = await _make_user_and_profile(db_session)
+    try:
+        await education_repo.create(db_session, profile.id, school="Keep Me")
+
+        await education_repo.delete_many(db_session, [])
+
+        assert len(await education_repo.list_by_profile(db_session, profile.id)) == 1
+    finally:
+        await _cleanup(db_session, user)

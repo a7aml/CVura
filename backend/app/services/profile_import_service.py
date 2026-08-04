@@ -1,9 +1,14 @@
 """Fast-path resume import: extract a Master Career Profile directly from an
 uploaded PDF resume via AI, bypassing the manual wizard. Used both for
 onboarding (no profile yet) and for replacing an existing profile once the
-caller has confirmed the overwrite. Reuses the same profile create/update/
-section services the wizard uses — this module only adds PDF text
-extraction and the AI extraction call on top."""
+caller has confirmed the overwrite.
+
+Section writes go through the repositories directly (create_many/
+delete_many) rather than profile_sections_service's one-item-at-a-time
+add/delete: a real resume can have dozens of section entries, and each of
+those going through a separate DB round-trip (plus that service's per-call
+ownership re-check) made a single import take minutes. Batching keeps the
+same repository layer, just fewer, bigger round-trips."""
 
 import io
 import uuid
@@ -11,9 +16,17 @@ import uuid
 import pypdf
 
 from app.ai import client as ai_client
+from app.repositories import (
+    awards_repo,
+    certifications_repo,
+    education_repo,
+    experiences_repo,
+    languages_repo,
+    projects_repo,
+    skills_repo,
+)
 from app.schemas.profile import ProfileCreate, ProfileUpdate
 from app.schemas.profile_import import MAX_UPLOAD_SIZE_BYTES, ProfileExtractionOutput
-from app.services import profile_sections_service as sections
 from app.services import profile_service
 
 _ALLOWED_CONTENT_TYPE = "application/pdf"
@@ -21,28 +34,15 @@ _ALLOWED_CONTENT_TYPE = "application/pdf"
 # corrupted file, etc.) rather than risk saving a near-empty profile.
 _MIN_EXTRACTED_TEXT_LENGTH = 50
 
-# Maps each extracted section to the profile_sections_service function names
-# that save/delete it. Looked up by name (not by direct function reference)
-# so the dispatch always goes through the current `sections` module
-# attribute rather than a reference captured at import time.
-_SECTION_SAVER_NAMES = {
-    "education": "add_education",
-    "experiences": "add_experience",
-    "projects": "add_project",
-    "skills": "add_skill",
-    "certifications": "add_certification",
-    "languages": "add_language",
-    "awards": "add_award",
-}
-
-_SECTION_DELETER_NAMES = {
-    "education": "delete_education",
-    "experiences": "delete_experience",
-    "projects": "delete_project",
-    "skills": "delete_skill",
-    "certifications": "delete_certification",
-    "languages": "delete_language",
-    "awards": "delete_award",
+# Maps each extracted section to the repository that owns it.
+_SECTION_REPOS = {
+    "education": education_repo,
+    "experiences": experiences_repo,
+    "projects": projects_repo,
+    "skills": skills_repo,
+    "certifications": certifications_repo,
+    "languages": languages_repo,
+    "awards": awards_repo,
 }
 
 
@@ -106,10 +106,13 @@ async def import_resume(
 
     if existing_profile is not None:
         await profile_service.update_profile(db, user_id, _to_profile_update(extracted))
-        await _clear_sections(db, user_id, existing_profile)
+        await _clear_sections(db, existing_profile)
+        profile_id = existing_profile.id
     else:
-        await profile_service.create_profile(db, user_id, _to_profile_create(extracted))
-    await _save_sections(db, user_id, extracted)
+        new_profile = await profile_service.create_profile(db, user_id, _to_profile_create(extracted))
+        profile_id = new_profile.id
+
+    await _save_sections(db, profile_id, extracted)
     return await profile_service.get_full_profile(db, user_id)
 
 
@@ -163,15 +166,15 @@ def _to_profile_update(extracted: ProfileExtractionOutput) -> ProfileUpdate:
     return ProfileUpdate(**extracted.personal_info.model_dump())
 
 
-async def _save_sections(db, user_id: uuid.UUID, extracted: ProfileExtractionOutput) -> None:
-    for field, saver_name in _SECTION_SAVER_NAMES.items():
-        saver = getattr(sections, saver_name)
-        for item in getattr(extracted, field):
-            await saver(db, user_id, item.model_dump())
+async def _save_sections(db, profile_id: uuid.UUID, extracted: ProfileExtractionOutput) -> None:
+    for field, repo in _SECTION_REPOS.items():
+        items = [item.model_dump() for item in getattr(extracted, field)]
+        if items:
+            await repo.create_many(db, profile_id, items)
 
 
-async def _clear_sections(db, user_id: uuid.UUID, existing_profile) -> None:
-    for field, deleter_name in _SECTION_DELETER_NAMES.items():
-        deleter = getattr(sections, deleter_name)
-        for item in getattr(existing_profile, field):
-            await deleter(db, user_id, item.id)
+async def _clear_sections(db, existing_profile) -> None:
+    for field, repo in _SECTION_REPOS.items():
+        ids = [item.id for item in getattr(existing_profile, field)]
+        if ids:
+            await repo.delete_many(db, ids)

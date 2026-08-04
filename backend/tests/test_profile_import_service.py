@@ -36,16 +36,23 @@ EMPTY_EXTRACTION = ProfileExtractionOutput(personal_info=PersonalInfoExtract())
 _NO_EXISTING_PROFILE = profile_service.ProfileNotFound()
 
 
+class _FakeProfile:
+    def __init__(self):
+        self.id = uuid.uuid4()
+
+
 async def test_import_resume_happy_path_saves_extracted_sections():
     with (
         patch("app.services.profile_import_service.ai_client.extract_profile_from_resume", new_callable=AsyncMock) as mock_extract,
         patch("app.services.profile_import_service.profile_service.get_full_profile", new_callable=AsyncMock) as mock_get,
         patch("app.services.profile_import_service.profile_service.create_profile", new_callable=AsyncMock) as mock_create,
-        patch("app.services.profile_import_service.sections.add_education", new_callable=AsyncMock) as mock_add_education,
-        patch("app.services.profile_import_service.sections.add_experience", new_callable=AsyncMock) as mock_add_experience,
-        patch("app.services.profile_import_service.sections.add_project", new_callable=AsyncMock) as mock_add_project,
+        patch("app.services.profile_import_service.education_repo.create_many", new_callable=AsyncMock) as mock_create_education,
+        patch("app.services.profile_import_service.experiences_repo.create_many", new_callable=AsyncMock) as mock_create_experience,
+        patch("app.services.profile_import_service.projects_repo.create_many", new_callable=AsyncMock) as mock_create_project,
     ):
         mock_extract.return_value = SAMPLE_EXTRACTION
+        new_profile = _FakeProfile()
+        mock_create.return_value = new_profile
         mock_get.side_effect = [_NO_EXISTING_PROFILE, "final-profile"]
 
         result = await profile_import_service.import_resume(
@@ -56,13 +63,13 @@ async def test_import_resume_happy_path_saves_extracted_sections():
     mock_create.assert_awaited_once()
     saved_profile_create = mock_create.call_args.args[2]
     assert saved_profile_create.full_name == "Jordan Diaz"
-    mock_add_education.assert_awaited_once_with(
+    mock_create_education.assert_awaited_once_with(
         None,
-        mock_create.call_args.args[1],
-        {"school": "State University", "degree": "BSc Computer Science", "field": None, "start_date": None, "end_date": None},
+        new_profile.id,
+        [{"school": "State University", "degree": "BSc Computer Science", "field": None, "start_date": None, "end_date": None}],
     )
-    mock_add_experience.assert_awaited_once()
-    mock_add_project.assert_not_awaited()
+    mock_create_experience.assert_awaited_once()
+    mock_create_project.assert_not_awaited()
 
 
 async def test_import_resume_does_not_invent_data_for_missing_sections():
@@ -71,16 +78,17 @@ async def test_import_resume_does_not_invent_data_for_missing_sections():
     with (
         patch("app.services.profile_import_service.ai_client.extract_profile_from_resume", new_callable=AsyncMock) as mock_extract,
         patch("app.services.profile_import_service.profile_service.get_full_profile", new_callable=AsyncMock) as mock_get,
-        patch("app.services.profile_import_service.profile_service.create_profile", new_callable=AsyncMock),
-        patch("app.services.profile_import_service.sections.add_education", new_callable=AsyncMock) as mock_education,
-        patch("app.services.profile_import_service.sections.add_experience", new_callable=AsyncMock) as mock_experience,
-        patch("app.services.profile_import_service.sections.add_project", new_callable=AsyncMock) as mock_project,
-        patch("app.services.profile_import_service.sections.add_skill", new_callable=AsyncMock) as mock_skill,
-        patch("app.services.profile_import_service.sections.add_certification", new_callable=AsyncMock) as mock_cert,
-        patch("app.services.profile_import_service.sections.add_language", new_callable=AsyncMock) as mock_language,
-        patch("app.services.profile_import_service.sections.add_award", new_callable=AsyncMock) as mock_award,
+        patch("app.services.profile_import_service.profile_service.create_profile", new_callable=AsyncMock) as mock_create,
+        patch("app.services.profile_import_service.education_repo.create_many", new_callable=AsyncMock) as mock_education,
+        patch("app.services.profile_import_service.experiences_repo.create_many", new_callable=AsyncMock) as mock_experience,
+        patch("app.services.profile_import_service.projects_repo.create_many", new_callable=AsyncMock) as mock_project,
+        patch("app.services.profile_import_service.skills_repo.create_many", new_callable=AsyncMock) as mock_skill,
+        patch("app.services.profile_import_service.certifications_repo.create_many", new_callable=AsyncMock) as mock_cert,
+        patch("app.services.profile_import_service.languages_repo.create_many", new_callable=AsyncMock) as mock_language,
+        patch("app.services.profile_import_service.awards_repo.create_many", new_callable=AsyncMock) as mock_award,
     ):
         mock_extract.return_value = ProfileExtractionOutput(personal_info=PersonalInfoExtract(full_name="Jordan Diaz"))
+        mock_create.return_value = _FakeProfile()
         mock_get.side_effect = [_NO_EXISTING_PROFILE, "final-profile"]
 
         await profile_import_service.import_resume(None, uuid.uuid4(), "resume.pdf", "application/pdf", VALID_PDF)
@@ -201,6 +209,7 @@ class _FakeExistingProfile:
     clear-then-save behavior can be asserted."""
 
     def __init__(self):
+        self.id = uuid.uuid4()
         self.education = [_FakeItem()]
         self.experiences = [_FakeItem()]
         self.projects = []
@@ -217,10 +226,10 @@ async def test_import_resume_replace_existing_updates_and_replaces_sections():
         patch("app.services.profile_import_service.profile_service.get_full_profile", new_callable=AsyncMock) as mock_get,
         patch("app.services.profile_import_service.profile_service.update_profile", new_callable=AsyncMock) as mock_update,
         patch("app.services.profile_import_service.profile_service.create_profile", new_callable=AsyncMock) as mock_create,
-        patch("app.services.profile_import_service.sections.delete_education", new_callable=AsyncMock) as mock_delete_education,
-        patch("app.services.profile_import_service.sections.delete_experience", new_callable=AsyncMock) as mock_delete_experience,
-        patch("app.services.profile_import_service.sections.add_education", new_callable=AsyncMock) as mock_add_education,
-        patch("app.services.profile_import_service.sections.add_experience", new_callable=AsyncMock) as mock_add_experience,
+        patch("app.services.profile_import_service.education_repo.delete_many", new_callable=AsyncMock) as mock_delete_education,
+        patch("app.services.profile_import_service.experiences_repo.delete_many", new_callable=AsyncMock) as mock_delete_experience,
+        patch("app.services.profile_import_service.education_repo.create_many", new_callable=AsyncMock) as mock_create_education,
+        patch("app.services.profile_import_service.experiences_repo.create_many", new_callable=AsyncMock) as mock_create_experience,
     ):
         mock_extract.return_value = SAMPLE_EXTRACTION
         mock_get.side_effect = [existing, "final-profile"]
@@ -234,10 +243,10 @@ async def test_import_resume_replace_existing_updates_and_replaces_sections():
     mock_update.assert_awaited_once()
     saved_update = mock_update.call_args.args[2]
     assert saved_update.full_name == "Jordan Diaz"
-    mock_delete_education.assert_awaited_once_with(None, mock_update.call_args.args[1], existing.education[0].id)
-    mock_delete_experience.assert_awaited_once_with(None, mock_update.call_args.args[1], existing.experiences[0].id)
-    mock_add_education.assert_awaited_once()
-    mock_add_experience.assert_awaited_once()
+    mock_delete_education.assert_awaited_once_with(None, [existing.education[0].id])
+    mock_delete_experience.assert_awaited_once_with(None, [existing.experiences[0].id])
+    mock_create_education.assert_awaited_once_with(None, existing.id, [item.model_dump() for item in SAMPLE_EXTRACTION.education])
+    mock_create_experience.assert_awaited_once()
 
 
 async def test_import_resume_replace_existing_false_still_blocks_on_existing_profile():

@@ -65,6 +65,7 @@ class FakeExistingProfile:
     can be asserted at the router level too."""
 
     def __init__(self):
+        self.id = uuid.uuid4()
         self.education = [SimpleNamespace(id=uuid.uuid4())]
         self.experiences = []
         self.projects = []
@@ -79,16 +80,17 @@ def _upload(http_client, filename="resume.pdf", content=VALID_PDF, content_type=
     return http_client.post("/profile/import-resume", files={"file": (filename, content, content_type)}, data=data)
 
 
-@patch("app.services.profile_import_service.sections.add_education", new_callable=AsyncMock)
+@patch("app.services.profile_import_service.education_repo.create_many", new_callable=AsyncMock)
 @patch("app.services.profile_import_service.profile_service.create_profile", new_callable=AsyncMock)
 @patch("app.services.profile_import_service.profile_service.get_full_profile", new_callable=AsyncMock)
 @patch("app.services.profile_import_service.ai_client.extract_profile_from_resume", new_callable=AsyncMock)
-def test_import_resume_happy_path_saves_profile(mock_extract, mock_get, mock_create, mock_add_education, client):
+def test_import_resume_happy_path_saves_profile(mock_extract, mock_get, mock_create, mock_create_education, client):
     http_client, _ = client
     mock_extract.return_value = ProfileExtractionOutput(
         personal_info=PersonalInfoExtract(full_name="Jordan Diaz"),
         education=[EducationIn(school="State University")],
     )
+    mock_create.return_value = SimpleNamespace(id=uuid.uuid4())
     mock_get.side_effect = [profile_service.ProfileNotFound(), FAKE_PROFILE_OUT]
 
     response = _upload(http_client)
@@ -96,7 +98,7 @@ def test_import_resume_happy_path_saves_profile(mock_extract, mock_get, mock_cre
     assert response.status_code == 200
     assert response.json()["full_name"] == "Jordan Diaz"
     mock_create.assert_awaited_once()
-    mock_add_education.assert_awaited_once()
+    mock_create_education.assert_awaited_once()
 
 
 def test_import_resume_rejects_oversized_file(client):
@@ -144,13 +146,13 @@ def test_import_resume_returns_409_when_profile_already_exists(mock_get, client)
     assert response.status_code == 409
 
 
-@patch("app.services.profile_import_service.sections.add_education", new_callable=AsyncMock)
-@patch("app.services.profile_import_service.sections.delete_education", new_callable=AsyncMock)
+@patch("app.services.profile_import_service.education_repo.create_many", new_callable=AsyncMock)
+@patch("app.services.profile_import_service.education_repo.delete_many", new_callable=AsyncMock)
 @patch("app.services.profile_import_service.profile_service.update_profile", new_callable=AsyncMock)
 @patch("app.services.profile_import_service.profile_service.get_full_profile", new_callable=AsyncMock)
 @patch("app.services.profile_import_service.ai_client.extract_profile_from_resume", new_callable=AsyncMock)
 def test_import_resume_replace_existing_overwrites_profile(
-    mock_extract, mock_get, mock_update, mock_delete_education, mock_add_education, client
+    mock_extract, mock_get, mock_update, mock_delete_education, mock_create_education, client
 ):
     http_client, _ = client
     existing = FakeExistingProfile()
@@ -164,8 +166,8 @@ def test_import_resume_replace_existing_overwrites_profile(
 
     assert response.status_code == 200
     mock_update.assert_awaited_once()
-    mock_delete_education.assert_awaited_once_with(mock_update.call_args.args[0], mock_update.call_args.args[1], existing.education[0].id)
-    mock_add_education.assert_awaited_once()
+    mock_delete_education.assert_awaited_once_with(mock_update.call_args.args[0], [existing.education[0].id])
+    mock_create_education.assert_awaited_once()
 
 
 @patch("app.services.profile_import_service.profile_service.get_full_profile", new_callable=AsyncMock)

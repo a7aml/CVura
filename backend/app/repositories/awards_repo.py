@@ -1,5 +1,6 @@
 import uuid
 
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,4 +35,20 @@ async def update(db: AsyncSession, item: Award, **fields) -> Award:
 
 async def delete(db: AsyncSession, item: Award) -> None:
     await db.delete(item)
+    await db.commit()
+
+
+async def create_many(db: AsyncSession, profile_id: uuid.UUID, items: list[dict]) -> list[Award]:
+    """Bulk insert in a single commit — used by resume import, where saving
+    each section item as its own round-trip is too slow for a real resume."""
+    rows = [Award(profile_id=profile_id, **fields) for fields in items]
+    db.add_all(rows)
+    await db.commit()
+    return rows
+
+
+async def delete_many(db: AsyncSession, ids: list[uuid.UUID]) -> None:
+    if not ids:
+        return
+    await db.execute(sql_delete(Award).where(Award.id.in_(ids)))
     await db.commit()
