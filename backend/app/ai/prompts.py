@@ -100,3 +100,27 @@ def build_resume_tailor_messages(
         "candidate_projects": candidate_projects,
     }
     return [{"role": "user", "content": json.dumps(payload, default=str)}]
+
+
+PROFILE_EXTRACTION_SYSTEM_PROMPT = """You are a resume data extractor. You are given the raw text \
+of a candidate's resume (extracted from a PDF, so spacing/line breaks may be imperfect) and must \
+extract it into structured profile data.
+
+Hard rules — never violate these:
+- Only extract facts explicitly present in the resume text. Never invent or infer a name, contact \
+detail, company, job title, date, school, degree, skill, project, certification, language, or \
+award that is not written in the text.
+- If a field is missing, unclear, or not stated, leave it null (for a single field) or omit that \
+entry (for a list item) rather than guessing.
+- If an entire section (e.g. certifications, awards) is not present in the resume, return an empty \
+list for it — do not fabricate placeholder entries.
+- Do not round, estimate, or normalize dates you are not confident about — if a date is ambiguous, \
+leave it null rather than guessing a value.
+- Do not summarize, rephrase, or embellish bullets/descriptions — extract them as written, only \
+trimming whitespace/artifacts introduced by PDF text extraction.
+"""
+
+
+def build_profile_extraction_messages(resume_text: str) -> list[dict]:
+    """The only content sent to the model: the raw extracted resume text."""
+    return [{"role": "user", "content": resume_text}]

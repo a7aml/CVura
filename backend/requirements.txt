@@ -15,6 +15,7 @@ google-auth
 requests
 openai
 typst
+pypdf
 boto3
 pytest
 pytest-asyncio

@@ -17,11 +17,15 @@ const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
 class ApiError extends Error {}
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // FormData bodies (file uploads) must let the browser set their own
+  // multipart boundary in Content-Type — forcing application/json here
+  // would break the upload.
+  const isFormData = options.body instanceof FormData
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: "include",
     cache: "no-store",
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers: isFormData ? options.headers : { "Content-Type": "application/json", ...options.headers },
   })
 
   if (!response.ok) {
@@ -69,6 +73,12 @@ export function createProfile(data: ProfileFields): Promise<Profile> {
 
 export function updateProfile(data: Partial<ProfileFields>): Promise<Profile> {
   return apiFetch<Profile>("/profile", { method: "PATCH", body: JSON.stringify(data) })
+}
+
+export function importResumeProfile(file: File): Promise<FullProfile> {
+  const formData = new FormData()
+  formData.append("file", file)
+  return apiFetch<FullProfile>("/profile/import-resume", { method: "POST", body: formData })
 }
 
 // --- repeatable sections ---

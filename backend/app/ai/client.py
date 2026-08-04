@@ -7,12 +7,15 @@ from openai import AsyncOpenAI
 
 from app.ai.prompts import (
     JOB_ANALYSIS_SYSTEM_PROMPT,
+    PROFILE_EXTRACTION_SYSTEM_PROMPT,
     RESUME_TAILOR_SYSTEM_PROMPT,
     build_job_analysis_messages,
+    build_profile_extraction_messages,
     build_resume_tailor_messages,
 )
 from app.core.config import settings
 from app.schemas.job import MAX_RAW_DESCRIPTION_LENGTH, JobAnalysis
+from app.schemas.profile_import import MAX_RESUME_TEXT_LENGTH, ProfileExtractionOutput
 from app.schemas.resume import ResumeTailorOutput
 
 _MODEL = "gpt-5.4-mini"
@@ -51,6 +54,10 @@ class TailorInputTooLarge(Exception):
     """The selected candidate subset exceeds the maximum size accepted for tailoring."""
 
 
+class ResumeTextTooLong(Exception):
+    """The extracted resume text exceeds the maximum length accepted for profile extraction."""
+
+
 async def analyze_job_description(raw_description: str) -> JobAnalysis:
     if len(raw_description) > MAX_RAW_DESCRIPTION_LENGTH:
         raise RawDescriptionTooLong(
@@ -66,6 +73,29 @@ async def analyze_job_description(raw_description: str) -> JobAnalysis:
             instructions=JOB_ANALYSIS_SYSTEM_PROMPT,
             input=build_job_analysis_messages(raw_description),
             text_format=JobAnalysis,
+        )
+    except _TRANSIENT_PROVIDER_ERRORS as exc:
+        raise AIProviderError(str(exc)) from exc
+
+    if response.output_parsed is None:
+        raise AIResponseInvalid(f"model returned no parsed output (status={response.status})")
+    return response.output_parsed
+
+
+async def extract_profile_from_resume(resume_text: str) -> ProfileExtractionOutput:
+    if len(resume_text) > MAX_RESUME_TEXT_LENGTH:
+        raise ResumeTextTooLong(
+            f"resume text is {len(resume_text)} characters, exceeding the {MAX_RESUME_TEXT_LENGTH}-character limit"
+        )
+
+    try:
+        response = await _client.responses.parse(
+            model=_MODEL,
+            max_output_tokens=_MAX_OUTPUT_TOKENS,
+            temperature=_TEMPERATURE,
+            instructions=PROFILE_EXTRACTION_SYSTEM_PROMPT,
+            input=build_profile_extraction_messages(resume_text),
+            text_format=ProfileExtractionOutput,
         )
     except _TRANSIENT_PROVIDER_ERRORS as exc:
         raise AIProviderError(str(exc)) from exc
