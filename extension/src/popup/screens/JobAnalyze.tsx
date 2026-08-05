@@ -2,10 +2,7 @@ import { useEffect, useState } from "react"
 
 import { createJob } from "~lib/api"
 import type { ExtractedJob, Job } from "~lib/types"
-
-interface ExtractJobMessage {
-  type: "EXTRACT_JOB"
-}
+import ResumeResult from "~popup/screens/ResumeResult"
 
 type State =
   | { status: "extracting" }
@@ -15,26 +12,32 @@ type State =
   | { status: "save-failed"; job: ExtractedJob; error: string }
   | { status: "saved"; job: Job }
 
-function requestExtraction(tabId: number): Promise<ExtractedJob | null> {
-  const message: ExtractJobMessage = { type: "EXTRACT_JOB" }
-  return chrome.tabs.sendMessage(tabId, message).catch(() => null)
+interface JobAnalyzeProps {
+  // Popup passes a tabId-messaging strategy; the content-script widget passes
+  // a direct in-page call (~lib/job-board) since it's already on the tab.
+  extract: () => Promise<ExtractedJob | null>
+  onBack: () => void
 }
 
-export default function JobAnalyze({ tabId, onBack }: { tabId: number; onBack: () => void }) {
+export default function JobAnalyze({ extract, onBack }: JobAnalyzeProps) {
   const [state, setState] = useState<State>({ status: "extracting" })
   const [attempt, setAttempt] = useState(0)
+  const [showResult, setShowResult] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setState({ status: "extracting" })
-    requestExtraction(tabId).then((result) => {
+    setShowResult(false)
+    extract().then((result) => {
       if (cancelled) return
       setState(result ? { status: "preview", job: result } : { status: "failed" })
     })
     return () => {
       cancelled = true
     }
-  }, [tabId, attempt])
+    // Deliberately only re-runs on `attempt` (the "try again" button) — not on
+    // `extract`, which callers may pass as a fresh closure every render.
+  }, [attempt])
 
   async function handleSave(job: ExtractedJob) {
     setState({ status: "saving", job })
@@ -44,6 +47,10 @@ export default function JobAnalyze({ tabId, onBack }: { tabId: number; onBack: (
     } catch (err) {
       setState({ status: "save-failed", job, error: err instanceof Error ? err.message : "Could not save" })
     }
+  }
+
+  if (state.status === "saved" && showResult) {
+    return <ResumeResult job={state.job} onBack={() => setShowResult(false)} />
   }
 
   return (
@@ -101,6 +108,9 @@ export default function JobAnalyze({ tabId, onBack }: { tabId: number; onBack: (
             {state.job.company && <div className="job-preview-company">{state.job.company}</div>}
           </div>
           <p style={{ color: "var(--color-text-muted)", fontSize: 13, margin: 0 }}>Saved to your CVura account.</p>
+          <button type="button" className="button button-primary" onClick={() => setShowResult(true)}>
+            Generate CV
+          </button>
         </div>
       )}
     </div>

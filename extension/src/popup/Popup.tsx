@@ -3,11 +3,23 @@ import { useEffect, useState } from "react"
 import { logout } from "~lib/api"
 import { checkSession } from "~lib/auth"
 import { matchSupportedJobBoard } from "~lib/config"
-import type { User } from "~lib/types"
+import type { ExtractedJob, User } from "~lib/types"
 import JobAnalyze from "~popup/screens/JobAnalyze"
 import Login from "~popup/screens/Login"
 
 type Status = "loading" | "authenticated" | "unauthenticated"
+
+interface ExtractJobMessage {
+  type: "EXTRACT_JOB"
+}
+
+// The popup isn't on the job's tab itself, so extraction has to be requested
+// from the tab's content script (contents/detect.ts) via messaging — unlike
+// the widget, which runs in that tab and can call ~lib/job-board directly.
+function requestExtraction(tabId: number): Promise<ExtractedJob | null> {
+  const message: ExtractJobMessage = { type: "EXTRACT_JOB" }
+  return chrome.tabs.sendMessage(tabId, message).catch(() => null)
+}
 
 function initials(email: string) {
   return email.slice(0, 2).toUpperCase()
@@ -87,7 +99,7 @@ function Popup() {
 
   if (status === "authenticated" && user) {
     if (jobTabId !== null && !showAccount) {
-      return <JobAnalyze tabId={jobTabId} onBack={() => setShowAccount(true)} />
+      return <JobAnalyze extract={() => requestExtraction(jobTabId)} onBack={() => setShowAccount(true)} />
     }
     return <AccountCard user={user} loading={loggingOut} onLogout={handleLogout} />
   }

@@ -1,10 +1,13 @@
 import { WEB_APP_LOGIN_PATH, WEB_APP_URL } from "~lib/config"
+import { openTab } from "~lib/runtime-actions"
 
 // Signup/login only exists on the website — this screen never collects
 // credentials, it just hands off to the website's login page in a new tab.
+// Routed through the background script (via openTab) so this same component
+// works whether it's rendered in the popup or in the content-script widget.
 export default function Login() {
   function openWebLogin() {
-    chrome.tabs.create({ url: `${WEB_APP_URL}${WEB_APP_LOGIN_PATH}` })
+    openTab(`${WEB_APP_URL}${WEB_APP_LOGIN_PATH}`)
   }
 
   return (

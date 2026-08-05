@@ -20,6 +20,7 @@
   },
   "include": [
     ".plasmo/index.d.ts",
+    "plasmo-env.d.ts",
     "src"
   ]
 }

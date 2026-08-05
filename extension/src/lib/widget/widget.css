@@ -1,0 +1,231 @@
+/* Styles for the floating job-page widget (contents/widget.tsx). It renders
+   inside a Shadow DOM on third-party pages (LinkedIn/Greenhouse/Lever), which
+   never loads the popup's style.css — so the subset of classes below that
+   Login/JobAnalyze/ResumeResult rely on is mirrored here (kept minimal; only
+   what those screens actually use). contents/widget.tsx combines this file
+   with tokens.css and buttons.css (also via data-text imports) into one
+   <style> in the shadow root. Keep in sync with extension/src/style.css if
+   those screens' classnames change. */
+
+.app {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 17px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.error-banner {
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  color: var(--color-error-text);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.center-screen {
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.job-preview {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.job-preview-title {
+  font-weight: 600;
+}
+
+.job-preview-company {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.job-preview-saved {
+  border-color: var(--color-primary);
+}
+
+.skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.skill-chip {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+/* --- Widget shell: new chrome around the reused popup screens --- */
+
+:host {
+  all: initial;
+  display: block;
+  font-family: var(--font-sans);
+}
+
+.cvura-widget-root {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483000;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.cvura-fab {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-primary-ink);
+  box-shadow: 0 4px 16px rgba(21, 21, 15, 0.24);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.cvura-fab:hover {
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: 0 6px 20px rgba(21, 21, 15, 0.3);
+}
+
+.cvura-fab:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.cvura-panel {
+  width: 340px;
+  max-height: min(520px, 80vh);
+  overflow-y: auto;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(21, 21, 15, 0.28);
+  transform-origin: bottom right;
+}
+
+.cvura-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cvura-panel-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.cvura-icon-button {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cvura-icon-button:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* Entrance: plays once when a job posting is first detected on the page. */
+.cvura-enter {
+  animation: cvura-enter 260ms ease-out;
+}
+
+@keyframes cvura-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Expand: panel scales/fades in from the fab's corner. */
+.cvura-panel {
+  animation: cvura-expand 200ms ease-out;
+}
+
+@keyframes cvura-expand {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cvura-enter,
+  .cvura-panel {
+    animation: none !important;
+  }
+  .cvura-fab,
+  .cvura-fab:hover,
+  .cvura-fab:active {
+    transition: none;
+    transform: none;
+  }
+}
