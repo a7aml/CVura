@@ -48,7 +48,7 @@ export default function JobAnalyze({ tabId, onBack }: { tabId: number; onBack: (
 
   return (
     <div className="app">
-      <button type="button" className="button-link" onClick={onBack} style={{ alignSelf: "flex-start" }}>
+      <button type="button" className="button button-link" onClick={onBack} style={{ alignSelf: "flex-start" }}>
         ← Account
       </button>
 

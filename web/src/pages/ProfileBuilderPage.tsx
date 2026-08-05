@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { createPortal } from "react-dom"
 
 import { getProfile, logout } from "../lib/api"
 import { prefersReducedMotion } from "../lib/motion"
@@ -90,25 +91,27 @@ export default function ProfileBuilderPage({
         <ProfileWizard profile={profile} hasProfile={hasProfile} refresh={refresh} />
       )}
 
-      {showImportModal && (
-        <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
-          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="modal-close"
-              aria-label="Close"
-              onClick={() => setShowImportModal(false)}>
-              ×
-            </button>
-            <ResumeUploadForm
-              onSuccess={async () => {
-                setShowImportModal(false)
-                await refresh()
-              }}
-            />
-          </div>
-        </div>
-      )}
+      {showImportModal &&
+        createPortal(
+          <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+            <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="modal-close"
+                aria-label="Close"
+                onClick={() => setShowImportModal(false)}>
+                ×
+              </button>
+              <ResumeUploadForm
+                onSuccess={async () => {
+                  setShowImportModal(false)
+                  await refresh()
+                }}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
