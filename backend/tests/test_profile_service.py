@@ -62,7 +62,7 @@ async def test_update_profile_only_sets_provided_fields(mock_repo):
 
     await profile_service.update_profile(None, user_id, ProfileUpdate(summary="New summary"))
 
-    mock_repo.update_profile.assert_awaited_once_with(None, existing, summary="New summary")
+    mock_repo.update_profile.assert_awaited_once_with(None, existing, commit=True, summary="New summary")
 
 
 @patch("app.services.profile_service.profile_repo")

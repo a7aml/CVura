@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import typst
+from sqlalchemy import text
 
 from app.ai import client as ai_client
+from app.repositories import education_repo, profile_repo, user_repo
 from app.schemas.profile import EducationIn, ExperienceIn
 from app.schemas.profile_import import MAX_UPLOAD_SIZE_BYTES, PersonalInfoExtract, ProfileExtractionOutput
 from app.services import profile_import_service, profile_service
@@ -42,6 +44,10 @@ class _FakeProfile:
 
 
 async def test_import_resume_happy_path_saves_extracted_sections():
+    # A mock "db" (not None) because _persist_extracted_profile now calls
+    # db.commit()/db.rollback() itself around the save, and the asserts below
+    # check it's committed exactly once -- not once per section like before.
+    db = AsyncMock(name="db")
     with (
         patch("app.services.profile_import_service.ai_client.extract_profile_from_resume", new_callable=AsyncMock) as mock_extract,
         patch("app.services.profile_import_service.profile_service.get_full_profile", new_callable=AsyncMock) as mock_get,
@@ -56,7 +62,7 @@ async def test_import_resume_happy_path_saves_extracted_sections():
         mock_get.side_effect = [_NO_EXISTING_PROFILE, "final-profile"]
 
         result = await profile_import_service.import_resume(
-            None, uuid.uuid4(), "resume.pdf", "application/pdf", VALID_PDF
+            db, uuid.uuid4(), "resume.pdf", "application/pdf", VALID_PDF
         )
 
     assert result == "final-profile"
@@ -64,12 +70,15 @@ async def test_import_resume_happy_path_saves_extracted_sections():
     saved_profile_create = mock_create.call_args.args[2]
     assert saved_profile_create.full_name == "Jordan Diaz"
     mock_create_education.assert_awaited_once_with(
-        None,
+        db,
         new_profile.id,
         [{"school": "State University", "degree": "BSc Computer Science", "field": None, "start_date": None, "end_date": None}],
+        commit=False,
     )
     mock_create_experience.assert_awaited_once()
     mock_create_project.assert_not_awaited()
+    db.commit.assert_awaited_once()
+    db.rollback.assert_not_awaited()
 
 
 async def test_import_resume_does_not_invent_data_for_missing_sections():
@@ -91,10 +100,12 @@ async def test_import_resume_does_not_invent_data_for_missing_sections():
         mock_create.return_value = _FakeProfile()
         mock_get.side_effect = [_NO_EXISTING_PROFILE, "final-profile"]
 
-        await profile_import_service.import_resume(None, uuid.uuid4(), "resume.pdf", "application/pdf", VALID_PDF)
+        db = AsyncMock(name="db")
+        await profile_import_service.import_resume(db, uuid.uuid4(), "resume.pdf", "application/pdf", VALID_PDF)
 
     for saver_mock in (mock_education, mock_experience, mock_project, mock_skill, mock_cert, mock_language, mock_award):
         saver_mock.assert_not_awaited()
+    db.commit.assert_awaited_once()
 
 
 async def test_import_resume_rejects_non_pdf_extension():
@@ -221,6 +232,7 @@ class _FakeExistingProfile:
 
 async def test_import_resume_replace_existing_updates_and_replaces_sections():
     existing = _FakeExistingProfile()
+    db = AsyncMock(name="db")
     with (
         patch("app.services.profile_import_service.ai_client.extract_profile_from_resume", new_callable=AsyncMock) as mock_extract,
         patch("app.services.profile_import_service.profile_service.get_full_profile", new_callable=AsyncMock) as mock_get,
@@ -235,7 +247,7 @@ async def test_import_resume_replace_existing_updates_and_replaces_sections():
         mock_get.side_effect = [existing, "final-profile"]
 
         result = await profile_import_service.import_resume(
-            None, uuid.uuid4(), "resume.pdf", "application/pdf", VALID_PDF, replace_existing=True
+            db, uuid.uuid4(), "resume.pdf", "application/pdf", VALID_PDF, replace_existing=True
         )
 
     assert result == "final-profile"
@@ -243,10 +255,14 @@ async def test_import_resume_replace_existing_updates_and_replaces_sections():
     mock_update.assert_awaited_once()
     saved_update = mock_update.call_args.args[2]
     assert saved_update.full_name == "Jordan Diaz"
-    mock_delete_education.assert_awaited_once_with(None, [existing.education[0].id])
-    mock_delete_experience.assert_awaited_once_with(None, [existing.experiences[0].id])
-    mock_create_education.assert_awaited_once_with(None, existing.id, [item.model_dump() for item in SAMPLE_EXTRACTION.education])
+    mock_delete_education.assert_awaited_once_with(db, [existing.education[0].id], commit=False)
+    mock_delete_experience.assert_awaited_once_with(db, [existing.experiences[0].id], commit=False)
+    mock_create_education.assert_awaited_once_with(
+        db, existing.id, [item.model_dump() for item in SAMPLE_EXTRACTION.education], commit=False
+    )
     mock_create_experience.assert_awaited_once()
+    db.commit.assert_awaited_once()
+    db.rollback.assert_not_awaited()
 
 
 async def test_import_resume_replace_existing_false_still_blocks_on_existing_profile():
@@ -257,3 +273,55 @@ async def test_import_resume_replace_existing_false_still_blocks_on_existing_pro
             await profile_import_service.import_resume(
                 None, uuid.uuid4(), "resume.pdf", "application/pdf", VALID_PDF, replace_existing=False
             )
+
+
+async def _cleanup_real_db(db_session, user_id):
+    for table in ("education", "experiences", "profiles", "users"):
+        where = "profile_id in (select id from profiles where user_id = :uid)" if table in (
+            "education",
+            "experiences",
+        ) else ("user_id = :uid" if table == "profiles" else "id = :uid")
+        await db_session.execute(text(f"delete from {table} where {where}"), {"uid": str(user_id)})
+    await db_session.commit()
+
+
+async def test_import_resume_replace_failure_partway_rolls_back_everything(db_session):
+    """Integration-style: real DB, real repos for education, only the
+    experiences save is forced to fail. Proves a mid-way failure leaves zero
+    trace -- not the old education row deleted, not the new one inserted --
+    rather than a real DB commit per section like before this fix."""
+    user = await user_repo.create_local_user(db_session, f"rollback-test-{uuid.uuid4()}@example.com", "hash")
+    user_id = user.id  # captured before expire_all() below, which invalidates lazy sync attribute access
+    try:
+        profile = await profile_repo.create_profile(db_session, user.id, full_name="Old Name")
+        await education_repo.create(db_session, profile.id, school="Old School")
+
+        extracted = ProfileExtractionOutput(
+            personal_info=PersonalInfoExtract(full_name="New Name"),
+            education=[EducationIn(school="New School")],
+            experiences=[ExperienceIn(title="New Title", company="New Co")],
+        )
+
+        with (
+            patch(
+                "app.services.profile_import_service.ai_client.extract_profile_from_resume", new_callable=AsyncMock
+            ) as mock_extract,
+            patch(
+                "app.services.profile_import_service.experiences_repo.create_many",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("simulated failure mid-save"),
+            ),
+        ):
+            mock_extract.return_value = extracted
+            with pytest.raises(RuntimeError, match="simulated failure mid-save"):
+                await profile_import_service.import_resume(
+                    db_session, user_id, "resume.pdf", "application/pdf", VALID_PDF, replace_existing=True
+                )
+
+        db_session.expire_all()
+        reloaded = await profile_repo.get_by_user_id(db_session, user_id)
+        assert reloaded.full_name == "Old Name"
+        assert len(reloaded.education) == 1
+        assert reloaded.education[0].school == "Old School"
+    finally:
+        await _cleanup_real_db(db_session, user_id)

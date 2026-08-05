@@ -19,15 +19,15 @@ async def get_full_profile(db, user_id: uuid.UUID):
     return profile
 
 
-async def create_profile(db, user_id: uuid.UUID, data: ProfileCreate):
+async def create_profile(db, user_id: uuid.UUID, data: ProfileCreate, commit: bool = True):
     if await profile_repo.get_by_user_id(db, user_id) is not None:
         raise ProfileAlreadyExists()
-    return await profile_repo.create_profile(db, user_id, **data.model_dump())
+    return await profile_repo.create_profile(db, user_id, commit=commit, **data.model_dump())
 
 
-async def update_profile(db, user_id: uuid.UUID, data: ProfileUpdate):
+async def update_profile(db, user_id: uuid.UUID, data: ProfileUpdate, commit: bool = True):
     profile = await profile_repo.get_by_user_id(db, user_id)
     if profile is None:
         raise ProfileNotFound()
     changes = data.model_dump(exclude_unset=True)
-    return await profile_repo.update_profile(db, profile, **changes)
+    return await profile_repo.update_profile(db, profile, commit=commit, **changes)

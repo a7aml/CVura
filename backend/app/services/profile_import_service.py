@@ -16,6 +16,8 @@ import uuid
 import pypdf
 
 from app.ai import client as ai_client
+from app.core import timing
+from app.core.timing import RequestTimer
 from app.repositories import (
     awards_repo,
     certifications_repo,
@@ -81,6 +83,7 @@ async def import_resume(
     content_type: str | None,
     file_bytes: bytes,
     replace_existing: bool = False,
+    timer: RequestTimer | None = None,
 ):
     """Validate -> extract PDF text -> AI extraction -> save. Nothing is
     written to the DB until the extracted result has passed validation, so a
@@ -94,25 +97,42 @@ async def import_resume(
     if existing_profile is not None and not replace_existing:
         raise ProfileAlreadyExists()
 
-    resume_text = _extract_text(file_bytes)
+    with timing.step(timer, "pdf_text_extraction"):
+        resume_text = _extract_text(file_bytes)
 
     try:
-        extracted = await _extract_with_retry(resume_text)
+        with timing.step(timer, "ai_extraction_call"):
+            extracted = await _extract_with_retry(resume_text)
     except ai_client.ResumeTextTooLong as exc:
         raise ExtractionFailed(str(exc)) from exc
 
     if not extracted.personal_info.full_name:
         raise EmptyExtraction("could not extract a name from the resume")
 
-    if existing_profile is not None:
-        await profile_service.update_profile(db, user_id, _to_profile_update(extracted))
-        await _clear_sections(db, existing_profile)
-        profile_id = existing_profile.id
-    else:
-        new_profile = await profile_service.create_profile(db, user_id, _to_profile_create(extracted))
-        profile_id = new_profile.id
+    with timing.step(timer, "db_save_profile"):
+        return await _persist_extracted_profile(db, user_id, existing_profile, extracted)
 
-    await _save_sections(db, profile_id, extracted)
+
+async def _persist_extracted_profile(db, user_id: uuid.UUID, existing_profile, extracted: ProfileExtractionOutput):
+    """Every write below passes commit=False, so nothing actually lands in the
+    DB until the single db.commit() at the end — a failure partway through
+    (a section repo raising, a network blip) rolls back everything instead of
+    leaving some sections replaced and others not."""
+    try:
+        if existing_profile is not None:
+            await profile_service.update_profile(db, user_id, _to_profile_update(extracted), commit=False)
+            await _clear_sections(db, existing_profile)
+            profile_id = existing_profile.id
+        else:
+            new_profile = await profile_service.create_profile(db, user_id, _to_profile_create(extracted), commit=False)
+            profile_id = new_profile.id
+
+        await _save_sections(db, profile_id, extracted)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
     return await profile_service.get_full_profile(db, user_id)
 
 
@@ -167,14 +187,25 @@ def _to_profile_update(extracted: ProfileExtractionOutput) -> ProfileUpdate:
 
 
 async def _save_sections(db, profile_id: uuid.UUID, extracted: ProfileExtractionOutput) -> None:
+    # Sequential, not asyncio.gather()'d: all 7 section repos share the one
+    # request-scoped AsyncSession (needed so everything commits/rolls back as
+    # one transaction), and SQLAlchemy's AsyncSession forbids concurrent
+    # operations on a single session -- confirmed empirically, it raises
+    # InvalidRequestError ("concurrent operations are not permitted"). Giving
+    # each section its own session would allow real concurrency but each
+    # session is its own DB connection/transaction, so a failure couldn't
+    # roll back sections already committed on other connections -- that
+    # breaks the atomicity guarantee this fix exists to add. Round-trip
+    # latency was the actual cost here and that's fixed at the infra level
+    # (DB now co-located), so sequential is fast without the added risk.
     for field, repo in _SECTION_REPOS.items():
         items = [item.model_dump() for item in getattr(extracted, field)]
         if items:
-            await repo.create_many(db, profile_id, items)
+            await repo.create_many(db, profile_id, items, commit=False)
 
 
 async def _clear_sections(db, existing_profile) -> None:
     for field, repo in _SECTION_REPOS.items():
         ids = [item.id for item in getattr(existing_profile, field)]
         if ids:
-            await repo.delete_many(db, ids)
+            await repo.delete_many(db, ids, commit=False)

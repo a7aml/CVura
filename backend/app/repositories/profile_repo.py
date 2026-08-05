@@ -30,17 +30,17 @@ async def get_by_id(db: AsyncSession, profile_id: uuid.UUID) -> Profile | None:
     return result.scalar_one_or_none()
 
 
-async def create_profile(db: AsyncSession, user_id: uuid.UUID, **fields) -> Profile:
+async def create_profile(db: AsyncSession, user_id: uuid.UUID, commit: bool = True, **fields) -> Profile:
     profile = Profile(user_id=user_id, **fields)
     db.add(profile)
-    await db.commit()
+    await (db.commit() if commit else db.flush())
     await db.refresh(profile)
     return profile
 
 
-async def update_profile(db: AsyncSession, profile: Profile, **fields) -> Profile:
+async def update_profile(db: AsyncSession, profile: Profile, commit: bool = True, **fields) -> Profile:
     for key, value in fields.items():
         setattr(profile, key, value)
-    await db.commit()
+    await (db.commit() if commit else db.flush())
     await db.refresh(profile)
     return profile

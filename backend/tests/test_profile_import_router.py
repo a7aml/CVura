@@ -52,8 +52,11 @@ class FakeUser:
 @pytest.fixture
 def client():
     fake_user = FakeUser()
+    # All repo/service calls in these tests are mocked, but the service layer
+    # now calls db.commit()/db.rollback() itself around the save, so the
+    # dependency-injected "db" needs to respond to those (a bare None can't).
     app.dependency_overrides[get_current_user] = lambda: fake_user
-    app.dependency_overrides[get_db] = lambda: None
+    app.dependency_overrides[get_db] = lambda: AsyncMock(name="db")
     limiter.reset()
     yield TestClient(app), fake_user
     app.dependency_overrides.clear()
@@ -166,7 +169,9 @@ def test_import_resume_replace_existing_overwrites_profile(
 
     assert response.status_code == 200
     mock_update.assert_awaited_once()
-    mock_delete_education.assert_awaited_once_with(mock_update.call_args.args[0], [existing.education[0].id])
+    mock_delete_education.assert_awaited_once_with(
+        mock_update.call_args.args[0], [existing.education[0].id], commit=False
+    )
     mock_create_education.assert_awaited_once()
 
 
