@@ -61,7 +61,18 @@
 }
 
 .button-secondary:hover:not(:disabled) {
-  border-color: var(--color-text);
+  border-color: var(--color-primary-active);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .button-secondary:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .button-secondary:active:not(:disabled) {
+    transform: translateY(0);
+  }
 }
 
 .button-link {
