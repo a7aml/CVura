@@ -19,7 +19,13 @@ from app.core.config import settings
 # {job_id} path param. Keying by (key_func result, view function) instead
 # makes the limit apply per-user across all of that user's requests to the
 # endpoint, which is what "rate limit all AI-calling endpoints" requires.
-limiter = Limiter(key_func=get_remote_address, key_style="endpoint")
+#
+# default_limits is a per-IP safety net applied to every route that doesn't
+# declare its own @limiter.limit — the many authenticated CRUD write
+# endpoints (profile sections, job creation, etc.) aren't AI-cost-sensitive
+# enough to need a bespoke per-user limit, but should still be bounded
+# against scripted write-spam rather than left completely unlimited.
+limiter = Limiter(key_func=get_remote_address, key_style="endpoint", default_limits=["120/minute"])
 
 _password_hasher = PasswordHasher()
 

@@ -90,7 +90,7 @@ async def test_tailor_resume_happy_path(
     mock_jobs.JobNotFound = job_analysis_service.JobNotFound
     mock_profile_repo.get_by_user_id = AsyncMock(return_value=profile)
     _mock_ai_client(mock_ai)
-    fake_resume = SimpleNamespace(id=uuid.uuid4(), version=1, pdf_url=None)
+    fake_resume = SimpleNamespace(id=uuid.uuid4(), version=1, pdf_key=None)
     mock_resume_repo.create_resume = AsyncMock(return_value=fake_resume)
     mock_user_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(email="jane@example.com"))
     # PDF generation is exercised by its own dedicated tests below — keep it
@@ -115,7 +115,7 @@ async def test_tailor_resume_happy_path(
 @patch("app.services.resume_tailor_service.ai_client")
 @patch("app.services.resume_tailor_service.profile_repo")
 @patch("app.services.resume_tailor_service.job_analysis_service")
-async def test_tailor_resume_attaches_pdf_url_on_success(
+async def test_tailor_resume_attaches_pdf_key_on_success(
     mock_jobs, mock_profile_repo, mock_ai, mock_resume_repo, mock_user_repo, mock_pdf_service
 ):
     user_id = uuid.uuid4()
@@ -125,18 +125,18 @@ async def test_tailor_resume_attaches_pdf_url_on_success(
     mock_jobs.get_job = AsyncMock(return_value=job)
     mock_profile_repo.get_by_user_id = AsyncMock(return_value=profile)
     _mock_ai_client(mock_ai)
-    created_resume = SimpleNamespace(id=uuid.uuid4(), version=1, pdf_url=None)
-    updated_resume = SimpleNamespace(id=created_resume.id, version=1, pdf_url="https://cdn.example.com/r.pdf")
+    created_resume = SimpleNamespace(id=uuid.uuid4(), version=1, pdf_key=None)
+    updated_resume = SimpleNamespace(id=created_resume.id, version=1, pdf_key="resumes/abc/r.pdf")
     mock_resume_repo.create_resume = AsyncMock(return_value=created_resume)
-    mock_resume_repo.update_pdf_url = AsyncMock(return_value=updated_resume)
+    mock_resume_repo.update_pdf_key = AsyncMock(return_value=updated_resume)
     mock_user_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(email="jane@example.com"))
-    mock_pdf_service.generate_and_upload_pdf = AsyncMock(return_value="https://cdn.example.com/r.pdf")
+    mock_pdf_service.generate_and_upload_pdf = AsyncMock(return_value="resumes/abc/r.pdf")
 
     _, resume = await resume_tailor_service.tailor_resume(None, user_id, job.id)
 
     assert resume is updated_resume
-    mock_resume_repo.update_pdf_url.assert_awaited_once_with(
-        None, created_resume.id, user_id, "https://cdn.example.com/r.pdf"
+    mock_resume_repo.update_pdf_key.assert_awaited_once_with(
+        None, created_resume.id, user_id, "resumes/abc/r.pdf"
     )
     pdf_call_kwargs = mock_pdf_service.generate_and_upload_pdf.await_args
     assert pdf_call_kwargs.args[0] == user_id
@@ -149,11 +149,11 @@ async def test_tailor_resume_attaches_pdf_url_on_success(
 @patch("app.services.resume_tailor_service.ai_client")
 @patch("app.services.resume_tailor_service.profile_repo")
 @patch("app.services.resume_tailor_service.job_analysis_service")
-async def test_tailor_resume_leaves_pdf_url_null_when_pdf_generation_fails(
+async def test_tailor_resume_leaves_pdf_key_null_when_pdf_generation_fails(
     mock_jobs, mock_profile_repo, mock_ai, mock_resume_repo, mock_user_repo, mock_pdf_service
 ):
     """PDF generation failing must not fail the /tailor call — the tailored
-    JSON is still valid and must be returned with pdf_url left null."""
+    JSON is still valid and must be returned with pdf_key left null."""
     user_id = uuid.uuid4()
     profile = _profile()
     job = _job(parsed_json={"required_skills": [], "technologies": [], "keywords_ats": [], "preferred_skills": []})
@@ -161,7 +161,7 @@ async def test_tailor_resume_leaves_pdf_url_null_when_pdf_generation_fails(
     mock_jobs.get_job = AsyncMock(return_value=job)
     mock_profile_repo.get_by_user_id = AsyncMock(return_value=profile)
     _mock_ai_client(mock_ai)
-    created_resume = SimpleNamespace(id=uuid.uuid4(), version=1, pdf_url=None)
+    created_resume = SimpleNamespace(id=uuid.uuid4(), version=1, pdf_key=None)
     mock_resume_repo.create_resume = AsyncMock(return_value=created_resume)
     mock_user_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(email="jane@example.com"))
     mock_pdf_service.generate_and_upload_pdf = AsyncMock(return_value=None)
@@ -170,8 +170,8 @@ async def test_tailor_resume_leaves_pdf_url_null_when_pdf_generation_fails(
 
     assert tailored is SAMPLE_OUTPUT
     assert resume is created_resume
-    assert resume.pdf_url is None
-    mock_resume_repo.update_pdf_url.assert_not_called()
+    assert resume.pdf_key is None
+    mock_resume_repo.update_pdf_key.assert_not_called()
 
 
 @patch("app.services.resume_tailor_service.profile_repo")

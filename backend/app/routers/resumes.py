@@ -8,7 +8,7 @@ from app.core.security import limiter, user_id_key
 from app.models.user import User
 from app.schemas.resume import ResumeTailorResponse
 from app.services import job_analysis_service as jobs_service
-from app.services import resume_tailor_service
+from app.services import pdf_service, resume_tailor_service
 
 router = APIRouter(prefix="/jobs", tags=["resumes"])
 
@@ -38,6 +38,7 @@ async def tailor_resume(
     except resume_tailor_service.AIServiceUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
+    pdf_url = pdf_service.generate_presigned_url(resume.pdf_key) if resume.pdf_key else None
     return ResumeTailorResponse(
-        **tailored.model_dump(), resume_id=resume.id, version=resume.version, pdf_url=resume.pdf_url
+        **tailored.model_dump(), resume_id=resume.id, version=resume.version, pdf_url=pdf_url
     )

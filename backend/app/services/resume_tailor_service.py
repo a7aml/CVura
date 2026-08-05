@@ -63,18 +63,20 @@ async def tailor_resume(db, user_id: uuid.UUID, job_id: uuid.UUID):
 
 async def _attach_pdf(db, user_id: uuid.UUID, resume, profile, tailored: ResumeTailorOutput):
     """Best-effort: a PDF failure never fails the /tailor request. On
-    success, persists the url; on failure, the resume keeps pdf_url=None."""
+    success, persists the R2 object key; on failure, the resume keeps
+    pdf_key=None. The router turns the stored key into a presigned download
+    URL — nothing here ever produces a permanent public link."""
     user = await user_repo.get_by_id(db, user_id)
     contact = _build_contact(profile, user)
     education = [_education_to_dict(e) for e in profile.education]
     certifications = [_certification_to_dict(c) for c in profile.certifications]
 
-    pdf_url = await pdf_service.generate_and_upload_pdf(
+    pdf_key = await pdf_service.generate_and_upload_pdf(
         user_id, resume.id, tailored, contact, education, certifications
     )
-    if pdf_url is None:
+    if pdf_key is None:
         return resume
-    return await resume_repo.update_pdf_url(db, resume.id, user_id, pdf_url) or resume
+    return await resume_repo.update_pdf_key(db, resume.id, user_id, pdf_key) or resume
 
 
 def _build_contact(profile, user) -> dict:

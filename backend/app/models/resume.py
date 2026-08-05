@@ -24,6 +24,6 @@ class Resume(Base):
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     content_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    pdf_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    pdf_key: Mapped[str | None] = mapped_column(String, nullable=True)
     match_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())

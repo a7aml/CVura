@@ -35,7 +35,7 @@ async def create_resume(
     return resume
 
 
-async def update_pdf_url(db: AsyncSession, resume_id: uuid.UUID, user_id: uuid.UUID, url: str | None) -> Resume | None:
+async def update_pdf_key(db: AsyncSession, resume_id: uuid.UUID, user_id: uuid.UUID, key: str | None) -> Resume | None:
     """Ownership-checked: only updates a resume row owned by user_id. Returns
     None (no-op) if the resume doesn't exist or belongs to someone else."""
     stmt = select(Resume).where(Resume.id == resume_id, Resume.user_id == user_id)
@@ -43,7 +43,7 @@ async def update_pdf_url(db: AsyncSession, resume_id: uuid.UUID, user_id: uuid.U
     resume = result.scalar_one_or_none()
     if resume is None:
         return None
-    resume.pdf_url = url
+    resume.pdf_key = key
     await db.commit()
     await db.refresh(resume)
     return resume

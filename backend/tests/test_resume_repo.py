@@ -74,30 +74,30 @@ async def test_get_resumes_by_job_excludes_other_users_resumes(db_session):
         await _cleanup(db_session, other_user.id)
 
 
-async def test_update_pdf_url_sets_url_for_owned_resume(db_session):
+async def test_update_pdf_key_sets_key_for_owned_resume(db_session):
     user, job = await _make_user_and_job(db_session)
     try:
         resume = await resume_repo.create_resume(db_session, user.id, job.id, {"summary": "v1"})
 
-        updated = await resume_repo.update_pdf_url(db_session, resume.id, user.id, "https://cdn.example.com/r.pdf")
+        updated = await resume_repo.update_pdf_key(db_session, resume.id, user.id, "resumes/u1/r1.pdf")
 
         assert updated is not None
-        assert updated.pdf_url == "https://cdn.example.com/r.pdf"
+        assert updated.pdf_key == "resumes/u1/r1.pdf"
     finally:
         await _cleanup(db_session, user.id)
 
 
-async def test_update_pdf_url_returns_none_for_other_users_resume(db_session):
+async def test_update_pdf_key_returns_none_for_other_users_resume(db_session):
     user, job = await _make_user_and_job(db_session)
     other_user, _ = await _make_user_and_job(db_session)
     try:
         resume = await resume_repo.create_resume(db_session, user.id, job.id, {"summary": "v1"})
 
-        result = await resume_repo.update_pdf_url(db_session, resume.id, other_user.id, "https://cdn.example.com/r.pdf")
+        result = await resume_repo.update_pdf_key(db_session, resume.id, other_user.id, "resumes/u1/r1.pdf")
 
         assert result is None
         fetched = await resume_repo.get_resumes_by_job(db_session, job.id, user.id)
-        assert fetched[0].pdf_url is None
+        assert fetched[0].pdf_key is None
     finally:
         await _cleanup(db_session, user.id)
         await _cleanup(db_session, other_user.id)
