@@ -15,12 +15,16 @@ export const config: PlasmoCSConfig = {
 // Candidate selectors are tried in order, first match wins. LinkedIn's class
 // names churn often (some are build-hashed), so this list is a resilience
 // layer, not a guarantee — it's the fallback path behind JSON-LD, not the
-// primary source of truth.
+// primary source of truth. The plain "h1" at the end is a last-resort catch:
+// JSON-LD is typically only embedded on canonical /jobs/view/<id> pages, not
+// the /jobs/search-results/?currentJobId=<id> panel view reached by browsing
+// search results, so that flow depends entirely on this fallback list.
 const TITLE_SELECTORS = [
   "h1.job-details-jobs-unified-top-card__job-title",
   ".job-details-jobs-unified-top-card__job-title h1",
   "h1.jobs-unified-top-card__job-title",
-  ".jobs-unified-top-card__job-title h1"
+  ".jobs-unified-top-card__job-title h1",
+  "h1"
 ]
 
 const COMPANY_SELECTORS = [
