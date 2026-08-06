@@ -13,8 +13,8 @@ type State =
   | { status: "saved"; job: Job }
 
 interface JobAnalyzeProps {
-  // Popup passes a tabId-messaging strategy; the content-script widget passes
-  // a direct in-page call (~lib/job-board) since it's already on the tab.
+  // A function rather than a tabId directly, so the popup's tabId-messaging
+  // strategy (Popup.tsx) stays out of this component's concerns.
   extract: () => Promise<ExtractedJob | null>
   onBack: () => void
 }

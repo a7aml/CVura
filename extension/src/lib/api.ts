@@ -37,12 +37,12 @@ export function isApiRequestMessage(message: unknown): message is ApiRequestMess
 }
 
 // The backend's CORS allowlist only grants cookie-bearing access to the
-// extension's own origin (chrome-extension://<id>) — a fetch made from
-// inside the content-script widget instead carries the *host page's* origin
-// (e.g. https://job-boards.greenhouse.io), which isn't allow-listed and
-// can't be (project_rules.md §3: never widen CORS to "*"). So every caller,
-// popup included, relays through this and the background script actually
-// performs the fetch — see background/index.ts's onMessage listener.
+// extension's own origin (chrome-extension://<id>) — a fetch made from a
+// content script instead carries the *host page's* origin (e.g.
+// https://job-boards.greenhouse.io), which isn't allow-listed and can't be
+// (project_rules.md §3: never widen CORS to "*"). So every caller, popup
+// included, relays through this and the background script actually performs
+// the fetch — see background/index.ts's onMessage listener.
 export async function performApiRequest(message: ApiRequestMessage): Promise<ApiResponseMessage> {
   const response = await fetch(`${API_BASE_URL}${message.path}`, {
     method: message.method,

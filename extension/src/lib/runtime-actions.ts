@@ -1,7 +1,6 @@
-// chrome.tabs and chrome.downloads are only available to extension pages
-// (popup, background) — not to content scripts. Routing both through the
-// background script here means Login/ResumeResult can call the same function
-// whether they're rendered in the popup or in the content-script widget.
+// chrome.tabs and chrome.downloads are unavailable to content scripts, so
+// Login/ResumeResult route through the background script for them here
+// rather than calling the chrome.* APIs directly.
 
 export interface OpenTabMessage {
   type: "OPEN_TAB"

@@ -14,8 +14,7 @@ interface ExtractJobMessage {
 }
 
 // The popup isn't on the job's tab itself, so extraction has to be requested
-// from the tab's content script (contents/detect.ts) via messaging — unlike
-// the widget, which runs in that tab and can call ~lib/job-board directly.
+// from the tab's content script (contents/detect.ts) via messaging.
 function requestExtraction(tabId: number): Promise<ExtractedJob | null> {
   const message: ExtractJobMessage = { type: "EXTRACT_JOB" }
   return chrome.tabs.sendMessage(tabId, message).catch(() => null)
