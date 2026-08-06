@@ -12,14 +12,39 @@ type State =
   | { status: "error"; message: string }
   | { status: "limit-reached" }
 
+// chrome.downloads.download() rejects the whole download with a generic
+// "Invalid filename" error for control characters (a scraped job title/
+// company can carry a stray newline — e.g. from a multi-line company link's
+// textContent), for names ending in "." or whitespace (a Windows path rule
+// Chrome enforces even off-Windows), and — confirmed via a real rejection on
+// a real RTL-locale LinkedIn posting — for Unicode bidi formatting
+// characters (RLM/LRM and the embedding/override/isolate marks), which
+// Chrome treats as a filename-spoofing risk and refuses outright. LinkedIn's
+// Arabic-locale rendering wraps interpolated text in these (confirmed via
+// view-source: title/company came through as e.g. "‏Luxoft‏"),
+// and the first fix here only stripped ASCII control characters, missing
+// this entirely. Previously this failure left the popup stuck on
+// "Tailoring your resume…" forever too, since the background script didn't
+// used to propagate it back to the caller either (see background/index.ts).
 function sanitizeFilenamePart(value: string): string {
-  return value.replace(/[\\/:*?"<>|]/g, "").trim()
+  return value
+    .replace(/[\x00-\x1f\x7f]/g, " ")
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.\s]+$/, "")
 }
 
 function buildFilename(job: Job): string {
-  const parts = [job.company, job.title].filter((part): part is string => Boolean(part)).map(sanitizeFilenamePart)
-  const base = parts.length > 0 ? parts.join(" - ") : job.title ? sanitizeFilenamePart(job.title) : "resume"
-  return `CVura - ${base}.pdf`
+  const parts = [job.company, job.title]
+    .filter((part): part is string => Boolean(part))
+    .map(sanitizeFilenamePart)
+    .filter(Boolean)
+  const base = parts.length > 0 ? parts.join(" - ") : "resume"
+  // Chrome/most filesystems cap path components well above this, but the
+  // job board content feeding `base` is otherwise unbounded.
+  return `${`CVura - ${base}`.slice(0, 150)}.pdf`
 }
 
 function downloadPdf(url: string, job: Job): Promise<void> {

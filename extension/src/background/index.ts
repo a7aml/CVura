@@ -36,19 +36,36 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
   }
 })
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 // Fulfils OPEN_TAB / DOWNLOAD_FILE (~lib/runtime-actions) and API_REQUEST
-// (~lib/api) messages relayed from the popup and content scripts.
+// (~lib/api) messages relayed from the popup and content scripts. Every
+// branch must call sendResponse on both success AND failure — a rejected
+// chrome.tabs/chrome.downloads/fetch call with no .catch() here leaves the
+// caller's chrome.runtime.sendMessage promise unresolved forever (observed:
+// an invalid download filename left the popup stuck on its loading state
+// indefinitely instead of surfacing an error).
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (isOpenTabMessage(message)) {
-    chrome.tabs.create({ url: message.url }).then(() => sendResponse())
+    chrome.tabs
+      .create({ url: message.url })
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: errorMessage(err) }))
     return true
   }
   if (isDownloadFileMessage(message)) {
-    chrome.downloads.download({ url: message.url, filename: message.filename, saveAs: false }).then(() => sendResponse())
+    chrome.downloads
+      .download({ url: message.url, filename: message.filename, saveAs: false })
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: errorMessage(err) }))
     return true
   }
   if (isApiRequestMessage(message)) {
-    dedupedApiRequest(message).then(sendResponse)
+    dedupedApiRequest(message)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, status: 0, body: { detail: errorMessage(err) } }))
     return true
   }
   return undefined

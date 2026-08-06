@@ -72,7 +72,7 @@ function findCompanyByLink(): string | null {
     }
     if (!COMPANY_LINK_PATH_PATTERN.test(pathname)) continue
     const text = link.textContent?.trim()
-    if (text) return text
+    if (text) return stripBidiControls(text)
   }
   return null
 }
@@ -103,10 +103,24 @@ function findDescriptionByTestId(): string | null {
   return candidates.reduce((longest, current) => (current.length > longest.length ? current : longest))
 }
 
+// LinkedIn's Arabic-locale rendering wraps interpolated text (titles, company
+// names) in Unicode bidi formatting characters — confirmed via real
+// view-source evidence (the <title> tag came through as e.g.
+// "‏Software Developer...‏ | ‏AutoCount‏ | LinkedIn") and via a
+// real "Invalid filename" download rejection once one of these leaked into a
+// generated filename (chrome.downloads.download() refuses filenames
+// containing them as an anti-spoofing measure). They're invisible, so a
+// human glancing at the extracted title/company would never notice them
+// still there. Stripped at extraction time so nothing downstream — the
+// saved job record, the filename, the AI prompt — ever sees them.
+function stripBidiControls(text: string): string {
+  return text.replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+}
+
 function queryText(selectors: string[]): string | null {
   for (const selector of selectors) {
     const text = document.querySelector(selector)?.textContent?.trim()
-    if (text) return text
+    if (text) return stripBidiControls(text)
   }
   return null
 }
@@ -196,8 +210,8 @@ function normalizeTitle(title: string): string {
 }
 
 function getMetaContent(selector: string): string | null {
-  const content = document.querySelector<HTMLMetaElement>(selector)?.content
-  return content?.trim() || null
+  const content = document.querySelector<HTMLMetaElement>(selector)?.content?.trim()
+  return content ? stripBidiControls(content) : null
 }
 
 // og:title commonly carries a " | LinkedIn" suffix that the CSS-selector and
@@ -217,12 +231,11 @@ function normalizeOgTitle(title: string): string {
 // Developer / Junior Software Developer"), and being permissive about
 // surrounding whitespace is safer than assuming an exact " | " spacing holds
 // across locales. The raw <title> on this real (Arabic-locale) posting was
-// wrapped in U+200F right-to-left marks around every segment — invisible
-// bidi formatting, not real text, and not something String#trim() strips —
-// so those are stripped explicitly before anything else.
+// wrapped in bidi marks around every segment (see stripBidiControls) —
+// invisible formatting, not real text, and not something String#trim()
+// strips — so those are stripped explicitly before anything else.
 function parseDocumentTitle(): { title: string; company: string | null } | null {
-  const segments = document.title
-    .replace(/[\u200e\u200f]/g, "")
+  const segments = stripBidiControls(document.title)
     .split("|")
     .map((segment) => segment.trim())
     .filter(Boolean)

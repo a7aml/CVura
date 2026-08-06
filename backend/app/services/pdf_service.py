@@ -15,6 +15,7 @@ from pathlib import Path
 
 import boto3
 import typst
+from botocore.config import Config
 
 from app.core.config import settings
 from app.schemas.resume import ResumeTailorOutput
@@ -67,11 +68,18 @@ def _render_pdf(
 
 
 def _r2_client():
+    # boto3 defaults to SigV2 query params (AWSAccessKeyId=...&Signature=...)
+    # for a custom endpoint_url unless told otherwise — R2 rejects those
+    # outright ("SigV2 authorization is not supported"). Confirmed via a real
+    # presigned URL returning that exact error when actually fetched: the
+    # /tailor request itself succeeded (upload + DB write are fine), but
+    # every download of the resulting link failed. R2 requires SigV4.
     return boto3.client(
         "s3",
         endpoint_url=settings.r2_endpoint_url,
         aws_access_key_id=settings.r2_access_key_id,
         aws_secret_access_key=settings.r2_secret_access_key,
+        config=Config(signature_version="s3v4"),
     )
 
 

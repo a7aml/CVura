@@ -15,6 +15,16 @@ export interface DownloadFileMessage {
 
 type RuntimeActionMessage = OpenTabMessage | DownloadFileMessage
 
+// The background script always calls sendResponse with one of these — never
+// leaves a caller's chrome.runtime.sendMessage promise unresolved, even when
+// the underlying chrome.tabs/chrome.downloads call rejects (a rejection with
+// no matching sendResponse used to hang the caller forever instead of
+// surfacing an error).
+export interface RuntimeActionResponse {
+  ok: boolean
+  error?: string
+}
+
 export function isOpenTabMessage(message: unknown): message is OpenTabMessage {
   return isRuntimeActionMessage(message) && message.type === "OPEN_TAB"
 }
@@ -27,12 +37,15 @@ function isRuntimeActionMessage(message: unknown): message is RuntimeActionMessa
   return typeof message === "object" && message !== null && "type" in message
 }
 
+async function sendRuntimeAction(message: RuntimeActionMessage): Promise<void> {
+  const response: RuntimeActionResponse = await chrome.runtime.sendMessage(message)
+  if (!response?.ok) throw new Error(response?.error ?? `${message.type} failed`)
+}
+
 export function openTab(url: string): Promise<void> {
-  const message: OpenTabMessage = { type: "OPEN_TAB", url }
-  return chrome.runtime.sendMessage(message)
+  return sendRuntimeAction({ type: "OPEN_TAB", url })
 }
 
 export function downloadFile(url: string, filename: string): Promise<void> {
-  const message: DownloadFileMessage = { type: "DOWNLOAD_FILE", url, filename }
-  return chrome.runtime.sendMessage(message)
+  return sendRuntimeAction({ type: "DOWNLOAD_FILE", url, filename })
 }
