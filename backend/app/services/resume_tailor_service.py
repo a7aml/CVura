@@ -1,7 +1,7 @@
 import uuid
 
 from app.ai import client as ai_client
-from app.repositories import profile_repo, resume_repo, user_repo
+from app.repositories import profile_repo, resume_repo, usage_repo, user_repo
 from app.schemas.resume import ResumeTailorOutput
 from app.services import job_analysis_service, pdf_service, resume_selection_service
 
@@ -26,6 +26,20 @@ class TailorInputTooLarge(Exception):
     pass
 
 
+class QuotaExceeded(Exception):
+    pass
+
+
+async def _enforce_quota(db, user) -> None:
+    """Free-plan accounts are capped at Usage.plan_limit lifetime
+    generations; Pro and comped accounts are unlimited."""
+    if user.plan != "free" or user.comped_reason is not None:
+        return
+    usage = await usage_repo.get_or_create(db, user.id)
+    if usage.resumes_generated_count >= usage.plan_limit:
+        raise QuotaExceeded()
+
+
 async def tailor_resume(db, user_id: uuid.UUID, job_id: uuid.UUID):
     """Orchestrates: fetch profile + analyzed job -> deterministic selection
     -> AI tailoring call -> persist as a new resume version. Returns
@@ -33,6 +47,9 @@ async def tailor_resume(db, user_id: uuid.UUID, job_id: uuid.UUID):
     job = await job_analysis_service.get_job(db, user_id, job_id)
     if job.parsed_json is None:
         raise JobNotAnalyzed()
+
+    user = await user_repo.get_by_id(db, user_id)
+    await _enforce_quota(db, user)
 
     profile = await profile_repo.get_by_user_id(db, user_id)
     if profile is None:
@@ -58,6 +75,7 @@ async def tailor_resume(db, user_id: uuid.UUID, job_id: uuid.UUID):
         db, user_id, job_id, tailored.model_dump(mode="json"), tailored.match_explanation
     )
     resume = await _attach_pdf(db, user_id, resume, profile, tailored)
+    await usage_repo.increment_resumes_generated(db, user_id)
     return tailored, resume
 
 

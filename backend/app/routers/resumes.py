@@ -31,6 +31,8 @@ async def tailor_resume(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Profile not found")
     except resume_tailor_service.JobNotAnalyzed as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Job must be analyzed before tailoring") from e
+    except resume_tailor_service.QuotaExceeded as e:
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Free plan resume limit reached") from e
     except resume_tailor_service.TailorInputTooLarge as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     except resume_tailor_service.ResumeTailorError as e:

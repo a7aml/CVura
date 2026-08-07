@@ -121,6 +121,16 @@ def test_tailor_resume_returns_404_when_profile_missing(mock_tailor, client):
 
 
 @patch("app.routers.resumes.resume_tailor_service.tailor_resume")
+def test_tailor_resume_returns_402_when_quota_exceeded(mock_tailor, client):
+    http_client, _ = client
+    mock_tailor.side_effect = resume_tailor_service.QuotaExceeded()
+
+    response = http_client.post(f"/jobs/{uuid.uuid4()}/tailor")
+
+    assert response.status_code == 402
+
+
+@patch("app.routers.resumes.resume_tailor_service.tailor_resume")
 def test_tailor_resume_returns_422_when_job_not_analyzed(mock_tailor, client):
     http_client, _ = client
     mock_tailor.side_effect = resume_tailor_service.JobNotAnalyzed()
