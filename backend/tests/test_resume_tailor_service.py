@@ -219,19 +219,21 @@ async def test_tailor_resume_propagates_job_not_found_for_ownership_check(mock_j
         await resume_tailor_service.tailor_resume(None, uuid.uuid4(), uuid.uuid4())
 
 
+@patch("app.services.resume_tailor_service.settings.free_tier_resume_limit", 3)
 @patch("app.services.resume_tailor_service.usage_repo")
 async def test_enforce_quota_raises_when_free_plan_at_limit(mock_usage_repo):
     user = _user(plan="free")
-    mock_usage_repo.get_or_create = AsyncMock(return_value=SimpleNamespace(resumes_generated_count=3, plan_limit=3))
+    mock_usage_repo.get_or_create = AsyncMock(return_value=SimpleNamespace(resumes_generated_count=3))
 
     with pytest.raises(resume_tailor_service.QuotaExceeded):
         await resume_tailor_service._enforce_quota(None, user)
 
 
+@patch("app.services.resume_tailor_service.settings.free_tier_resume_limit", 3)
 @patch("app.services.resume_tailor_service.usage_repo")
 async def test_enforce_quota_allows_free_plan_under_limit(mock_usage_repo):
     user = _user(plan="free")
-    mock_usage_repo.get_or_create = AsyncMock(return_value=SimpleNamespace(resumes_generated_count=2, plan_limit=3))
+    mock_usage_repo.get_or_create = AsyncMock(return_value=SimpleNamespace(resumes_generated_count=2))
 
     await resume_tailor_service._enforce_quota(None, user)  # must not raise
 
@@ -256,6 +258,7 @@ async def test_enforce_quota_comped_free_plan_skips_usage_lookup(mock_usage_repo
     mock_usage_repo.get_or_create.assert_not_called()
 
 
+@patch("app.services.resume_tailor_service.settings.free_tier_resume_limit", 3)
 @patch("app.services.resume_tailor_service.usage_repo")
 @patch("app.services.resume_tailor_service.ai_client")
 @patch("app.services.resume_tailor_service.user_repo")
@@ -267,7 +270,7 @@ async def test_tailor_resume_blocks_before_ai_call_when_quota_exceeded(
     job = _job(parsed_json={"required_skills": []})
     mock_jobs.get_job = AsyncMock(return_value=job)
     mock_user_repo.get_by_id = AsyncMock(return_value=_user(plan="free"))
-    mock_usage_repo.get_or_create = AsyncMock(return_value=SimpleNamespace(resumes_generated_count=3, plan_limit=3))
+    mock_usage_repo.get_or_create = AsyncMock(return_value=SimpleNamespace(resumes_generated_count=3))
 
     with pytest.raises(resume_tailor_service.QuotaExceeded):
         await resume_tailor_service.tailor_resume(None, uuid.uuid4(), job.id)

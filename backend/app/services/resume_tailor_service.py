@@ -1,6 +1,7 @@
 import uuid
 
 from app.ai import client as ai_client
+from app.core.config import settings
 from app.repositories import profile_repo, resume_repo, usage_repo, user_repo
 from app.schemas.resume import ResumeTailorOutput
 from app.services import job_analysis_service, pdf_service, resume_selection_service
@@ -31,12 +32,16 @@ class QuotaExceeded(Exception):
 
 
 async def _enforce_quota(db, user) -> None:
-    """Free-plan accounts are capped at Usage.plan_limit lifetime
-    generations; Pro and comped accounts are unlimited."""
+    """Free-plan accounts are capped at settings.free_tier_resume_limit
+    lifetime generations; Pro and comped accounts are unlimited.
+
+    NOTE: FREE_TIER_RESUME_LIMIT is temporarily set very high for
+    pre-billing testing (Stripe integration is Build Order step 8).
+    Reset it to the real free-tier limit (3) once billing ships."""
     if user.plan != "free" or user.comped_reason is not None:
         return
     usage = await usage_repo.get_or_create(db, user.id)
-    if usage.resumes_generated_count >= usage.plan_limit:
+    if usage.resumes_generated_count >= settings.free_tier_resume_limit:
         raise QuotaExceeded()
 
 

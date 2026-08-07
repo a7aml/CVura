@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
     ai_api_key: str = ""
+    free_tier_resume_limit: int = 3
 
 
 settings = Settings()
