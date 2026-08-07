@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -44,21 +45,31 @@ async def issue_tokens(db, user: User) -> tuple[str, str]:
 async def signup_local(db, email: str, password: str) -> tuple[User, str, str]:
     if await user_repo.get_by_email(db, email) is not None:
         raise EmailAlreadyExists()
-    user = await user_repo.create_local_user(db, email, hash_password(password))
+    # Argon2 hashing is CPU-bound and deliberately slow; run it off the event
+    # loop so a burst of signups doesn't stall every other in-flight request.
+    password_hash = await asyncio.to_thread(hash_password, password)
+    user = await user_repo.create_local_user(db, email, password_hash)
     access_token, refresh_token = await issue_tokens(db, user)
     return user, access_token, refresh_token
 
 
 async def login_local(db, email: str, password: str) -> tuple[User, str, str]:
     user = await user_repo.get_by_email(db, email)
-    if user is None or user.password_hash is None or not verify_password(password, user.password_hash):
+    if user is None or user.password_hash is None:
+        raise InvalidCredentials()
+    # See signup_local: Argon2 verification is CPU-bound, offload it.
+    password_ok = await asyncio.to_thread(verify_password, password, user.password_hash)
+    if not password_ok:
         raise InvalidCredentials()
     access_token, refresh_token = await issue_tokens(db, user)
     return user, access_token, refresh_token
 
 
 async def login_google(db, id_token: str) -> tuple[User, str, str]:
-    claims = verify_google_id_token(id_token)
+    # Verifying a Google ID token does a blocking HTTP call (fetching/caching
+    # Google's signing certs) under the hood; offload it so a slow cert fetch
+    # can't stall the event loop for every other in-flight request.
+    claims = await asyncio.to_thread(verify_google_id_token, id_token)
     google_sub = claims["sub"]
     email = claims["email"]
 
