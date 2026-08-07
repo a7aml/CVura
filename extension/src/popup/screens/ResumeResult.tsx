@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 
 import { analyzeJob, isLimitReachedError, tailorResume } from "~lib/api"
 import { WEB_APP_URL } from "~lib/config"
+import { getCachedResult, setCachedResult } from "~lib/resume-cache"
 import { downloadFile, openTab } from "~lib/runtime-actions"
 import type { Job, ResumeTailorResult } from "~lib/types"
 
@@ -59,6 +60,19 @@ export default function ResumeResult({ job, onBack }: { job: Job; onBack: () => 
     let cancelled = false
 
     async function run() {
+      // attempt === 0 means this run wasn't triggered by "Try again" or
+      // "Regenerate" (both bump attempt), so it's either a fresh job or one
+      // reopened from a prior popup session — check for an existing result
+      // before re-running analyze -> tailor -> download for it.
+      if (attempt === 0) {
+        const cached = await getCachedResult(job.id)
+        if (cancelled) return
+        if (cached) {
+          setState({ status: "done", result: cached, downloaded: false })
+          return
+        }
+      }
+
       setState({ status: "analyzing" })
       try {
         await analyzeJob(job.id)
@@ -66,6 +80,8 @@ export default function ResumeResult({ job, onBack }: { job: Job; onBack: () => 
         setState({ status: "tailoring" })
 
         const result = await tailorResume(job.id)
+        if (cancelled) return
+        await setCachedResult(job.id, result)
         if (cancelled) return
 
         if (result.pdf_url) {
@@ -152,9 +168,9 @@ export default function ResumeResult({ job, onBack }: { job: Job; onBack: () => 
             </div>
           )}
 
-          {state.downloaded ? (
+          {state.result.pdf_url ? (
             <p style={{ color: "var(--color-text-muted)", fontSize: 13, margin: 0 }}>
-              Downloaded to your computer as a PDF.
+              {state.downloaded ? "Downloaded to your computer as a PDF." : "Your tailored resume is ready."}
             </p>
           ) : (
             <div className="error-banner" role="alert">
@@ -167,9 +183,13 @@ export default function ResumeResult({ job, onBack }: { job: Job; onBack: () => 
               type="button"
               className="button button-secondary"
               onClick={() => handleRedownload(state.result)}>
-              Download again
+              {state.downloaded ? "Download again" : "Download"}
             </button>
           )}
+
+          <button type="button" className="button button-link" onClick={() => setAttempt((n) => n + 1)}>
+            Regenerate
+          </button>
         </div>
       )}
     </div>

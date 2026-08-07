@@ -22,6 +22,7 @@
   },
   "manifest": {
     "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1HKtsnkOlzbymq2CMiRhtpUSHWUkci4v6IRYmpkWbyPfXeKGBAK08D3U5qt0Lv6+1QvlYjh/m9aoMJPAPnfFKVs0+1SxPKeV1tniD24RPvSbcuRuzuuTw8ZdXqk5lILlqQgMs4WUu5BgL22FnTL8ZIXkVy0/m0e1Nq+JPLtQuWBRMWt5x5Rg2c/2vjqYIe2+WrATBQTmZjDlywbuI3yXvyLCu7XgzbVyHGs+H9xXNBHeg/AcBvfLuQbP3NH6udM51bxbjeuCX7e0LallQxwnatSbSb5uhyfoQHDnQfhI5bL0cH9Ju9fmCK3wrONmLnGutpjaIxMhPfDDhOQ0JkbEZQIDAQAB",
+    "permissions": ["storage"],
     "host_permissions": [
       "https://www.linkedin.com/*",
       "https://boards.greenhouse.io/*",
