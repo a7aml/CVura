@@ -78,19 +78,21 @@ async def refresh_access_token(db, refresh_token: str) -> tuple[User, str, str]:
     except jwt.InvalidTokenError:
         raise InvalidRefreshToken()
 
-    stored = await refresh_token_repo.get_by_hash(db, hash_token(refresh_token))
+    token_hash = hash_token(refresh_token)
+    stored = await refresh_token_repo.get_by_hash(db, token_hash)
     if stored is None or stored.revoked_at is not None:
-        raise InvalidRefreshToken()
-
-    if stored.used_at is not None:
-        # Reuse of an already-rotated refresh token — likely theft. Revoke the whole family.
-        await refresh_token_repo.revoke_all_for_user(db, stored.user_id)
         raise InvalidRefreshToken()
 
     if stored.expires_at < datetime.now(timezone.utc):
         raise InvalidRefreshToken()
 
-    await refresh_token_repo.mark_used(db, stored)
+    consumed = await refresh_token_repo.consume(db, token_hash)
+    if consumed is None:
+        # Someone already consumed this single-use token — sequentially or in
+        # a concurrent request racing this one. Either way, treat reuse as
+        # theft and revoke the whole family.
+        await refresh_token_repo.revoke_all_for_user(db, stored.user_id)
+        raise InvalidRefreshToken()
 
     user = await user_repo.get_by_id(db, uuid.UUID(payload["sub"]))
     if user is None:

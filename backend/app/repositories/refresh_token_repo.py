@@ -29,6 +29,29 @@ async def mark_used(db: AsyncSession, token: RefreshToken) -> None:
     await db.refresh(token)
 
 
+async def consume(db: AsyncSession, token_hash: str) -> RefreshToken | None:
+    """Atomically mark a refresh token used, iff it is still unused and unrevoked.
+
+    The WHERE clause and the write happen in a single statement, so two
+    concurrent callers presenting the same single-use token can never both
+    succeed: whichever commits first wins, and the loser's UPDATE matches
+    zero rows. Callers must treat a None return as a reuse signal, not merely
+    "not found".
+    """
+    result = await db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.used_at.is_(None),
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(used_at=func.now())
+        .returning(RefreshToken)
+    )
+    await db.commit()
+    return result.scalar_one_or_none()
+
+
 async def revoke(db: AsyncSession, token: RefreshToken) -> None:
     token.revoked_at = func.now()
     await db.commit()

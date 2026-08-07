@@ -128,7 +128,7 @@ async def test_refresh_rotates_token(mock_user_repo, mock_token_repo):
     stored = FakeToken(user_id=user.id)
 
     mock_token_repo.get_by_hash = AsyncMock(return_value=stored)
-    mock_token_repo.mark_used = AsyncMock()
+    mock_token_repo.consume = AsyncMock(return_value=stored)
     mock_token_repo.create = AsyncMock()
     mock_user_repo.get_by_id = AsyncMock(return_value=user)
 
@@ -138,7 +138,7 @@ async def test_refresh_rotates_token(mock_user_repo, mock_token_repo):
 
     assert returned_user is user
     assert new_refresh_token != refresh_token
-    mock_token_repo.mark_used.assert_awaited_once_with(None, stored)
+    mock_token_repo.consume.assert_awaited_once()
 
 
 @patch("app.services.auth_service.refresh_token_repo")
@@ -148,12 +148,41 @@ async def test_refresh_reuse_detected_revokes_family(mock_token_repo):
     stored = FakeToken(user_id=user_id, used_at=datetime.now(timezone.utc))
 
     mock_token_repo.get_by_hash = AsyncMock(return_value=stored)
+    mock_token_repo.consume = AsyncMock(return_value=None)
     mock_token_repo.revoke_all_for_user = AsyncMock()
 
     with pytest.raises(auth_service.InvalidRefreshToken):
         await auth_service.refresh_access_token(None, refresh_token)
 
     mock_token_repo.revoke_all_for_user.assert_awaited_once_with(None, user_id)
+
+
+@patch("app.services.auth_service.refresh_token_repo")
+@patch("app.services.auth_service.user_repo")
+async def test_refresh_concurrent_replay_loses_race_and_revokes_family(mock_user_repo, mock_token_repo):
+    # Simulates two concurrent /auth/refresh requests presenting the same
+    # token: both pass the initial read-only checks, but only one `consume`
+    # call can win the atomic UPDATE — the other must observe None and
+    # trigger family revocation instead of silently minting a second token
+    # pair from a single-use token.
+    user = FakeUser()
+    refresh_token = create_refresh_token(user.id)
+    stored = FakeToken(user_id=user.id)
+
+    mock_token_repo.get_by_hash = AsyncMock(return_value=stored)
+    mock_token_repo.consume = AsyncMock(side_effect=[stored, None])
+    mock_token_repo.create = AsyncMock()
+    mock_token_repo.revoke_all_for_user = AsyncMock()
+    mock_user_repo.get_by_id = AsyncMock(return_value=user)
+
+    winner = await auth_service.refresh_access_token(None, refresh_token)
+    assert winner[0] is user
+
+    with pytest.raises(auth_service.InvalidRefreshToken):
+        await auth_service.refresh_access_token(None, refresh_token)
+
+    mock_token_repo.revoke_all_for_user.assert_awaited_once_with(None, user.id)
+    assert mock_token_repo.consume.await_count == 2
 
 
 @patch("app.services.auth_service.refresh_token_repo")
