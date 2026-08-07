@@ -1,5 +1,7 @@
 """AI model calls, isolated from services logic."""
 
+import asyncio
+import contextlib
 import json
 
 import openai
@@ -37,6 +39,31 @@ _TRANSIENT_PROVIDER_ERRORS = (
 
 _client = AsyncOpenAI(api_key=settings.ai_api_key)
 
+# Per-user rate limits (see security.py) cap *cost per user* but not how many
+# AI calls run at once *across* users — a burst of legitimate concurrent
+# requests could otherwise open unbounded simultaneous connections to the
+# provider. This process runs a single uvicorn worker (see Dockerfile), so
+# the limit is sized as a conservative, single-process budget rather than
+# tuned to any particular provider rate tier.
+_AI_CALL_CONCURRENCY_LIMIT = 8
+_AI_CALL_QUEUE_TIMEOUT_SECONDS = 10.0
+_ai_call_semaphore = asyncio.Semaphore(_AI_CALL_CONCURRENCY_LIMIT)
+
+
+@contextlib.asynccontextmanager
+async def _ai_call_slot():
+    """Bounds concurrent in-flight AI calls process-wide. A caller that can't
+    get a slot within the timeout fails fast instead of queuing indefinitely
+    behind an unbounded backlog."""
+    try:
+        await asyncio.wait_for(_ai_call_semaphore.acquire(), timeout=_AI_CALL_QUEUE_TIMEOUT_SECONDS)
+    except TimeoutError:
+        raise AIProviderError("AI service is at capacity, please try again shortly") from None
+    try:
+        yield
+    finally:
+        _ai_call_semaphore.release()
+
 
 class AIResponseInvalid(Exception):
     """The model did not return a response conforming to the requested schema."""
@@ -66,14 +93,15 @@ async def analyze_job_description(raw_description: str) -> JobAnalysis:
         )
 
     try:
-        response = await _client.responses.parse(
-            model=_MODEL,
-            max_output_tokens=_MAX_OUTPUT_TOKENS,
-            temperature=_TEMPERATURE,
-            instructions=JOB_ANALYSIS_SYSTEM_PROMPT,
-            input=build_job_analysis_messages(raw_description),
-            text_format=JobAnalysis,
-        )
+        async with _ai_call_slot():
+            response = await _client.responses.parse(
+                model=_MODEL,
+                max_output_tokens=_MAX_OUTPUT_TOKENS,
+                temperature=_TEMPERATURE,
+                instructions=JOB_ANALYSIS_SYSTEM_PROMPT,
+                input=build_job_analysis_messages(raw_description),
+                text_format=JobAnalysis,
+            )
     except _TRANSIENT_PROVIDER_ERRORS as exc:
         raise AIProviderError(str(exc)) from exc
 
@@ -89,14 +117,15 @@ async def extract_profile_from_resume(resume_text: str) -> ProfileExtractionOutp
         )
 
     try:
-        response = await _client.responses.parse(
-            model=_MODEL,
-            max_output_tokens=_MAX_OUTPUT_TOKENS,
-            temperature=_TEMPERATURE,
-            instructions=PROFILE_EXTRACTION_SYSTEM_PROMPT,
-            input=build_profile_extraction_messages(resume_text),
-            text_format=ProfileExtractionOutput,
-        )
+        async with _ai_call_slot():
+            response = await _client.responses.parse(
+                model=_MODEL,
+                max_output_tokens=_MAX_OUTPUT_TOKENS,
+                temperature=_TEMPERATURE,
+                instructions=PROFILE_EXTRACTION_SYSTEM_PROMPT,
+                input=build_profile_extraction_messages(resume_text),
+                text_format=ProfileExtractionOutput,
+            )
     except _TRANSIENT_PROVIDER_ERRORS as exc:
         raise AIProviderError(str(exc)) from exc
 
@@ -119,14 +148,15 @@ async def tailor_resume(
         )
 
     try:
-        response = await _client.responses.parse(
-            model=_MODEL,
-            max_output_tokens=_MAX_OUTPUT_TOKENS,
-            temperature=_TEMPERATURE,
-            instructions=RESUME_TAILOR_SYSTEM_PROMPT,
-            input=messages,
-            text_format=ResumeTailorOutput,
-        )
+        async with _ai_call_slot():
+            response = await _client.responses.parse(
+                model=_MODEL,
+                max_output_tokens=_MAX_OUTPUT_TOKENS,
+                temperature=_TEMPERATURE,
+                instructions=RESUME_TAILOR_SYSTEM_PROMPT,
+                input=messages,
+                text_format=ResumeTailorOutput,
+            )
     except _TRANSIENT_PROVIDER_ERRORS as exc:
         raise AIProviderError(str(exc)) from exc
 

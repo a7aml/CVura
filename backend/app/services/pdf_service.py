@@ -8,6 +8,7 @@ presigned-URL step (generate_presigned_url) turns that key into a
 short-lived, time-limited download link on demand."""
 
 import asyncio
+import contextlib
 import logging
 import tempfile
 import uuid
@@ -30,6 +31,15 @@ _R2_KEY_TEMPLATE = "resumes/{user_id}/{resume_id}.pdf"
 # standing exposure, long enough to cover a slow download right after tailoring.
 PRESIGNED_URL_EXPIRY_SECONDS = 3600
 
+# The Typst compile is CPU-bound and runs on the shared default thread-pool
+# executor alongside every other asyncio.to_thread call in this process
+# (Argon2 hashing, Google cert verification, R2 uploads). Capping concurrent
+# renders stops a burst of /tailor requests from starving that pool for
+# everything else that depends on it.
+_PDF_RENDER_CONCURRENCY_LIMIT = 4
+_PDF_RENDER_QUEUE_TIMEOUT_SECONDS = 8.0
+_pdf_render_semaphore = asyncio.Semaphore(_PDF_RENDER_CONCURRENCY_LIMIT)
+
 
 async def generate_and_upload_pdf(
     user_id: uuid.UUID,
@@ -42,11 +52,30 @@ async def generate_and_upload_pdf(
     """Returns the uploaded PDF's R2 object key (not a URL) on success, or
     None if generation/upload failed."""
     try:
-        pdf_bytes = await asyncio.to_thread(_render_pdf, tailored, contact, education, certifications)
+        async with _pdf_render_slot():
+            pdf_bytes = await asyncio.to_thread(_render_pdf, tailored, contact, education, certifications)
         return await asyncio.to_thread(_upload_to_r2, user_id, resume_id, pdf_bytes)
+    except TimeoutError:
+        # Consistent with the "PDF generation never fails a /tailor request"
+        # contract below: a busy render queue degrades to no-PDF rather than
+        # hanging the request or failing tailoring outright.
+        logger.warning("PDF render queue at capacity, skipping PDF for resume_id=%s", resume_id)
+        return None
     except Exception:
         logger.exception("PDF generation/upload failed for resume_id=%s", resume_id)
         return None
+
+
+@contextlib.asynccontextmanager
+async def _pdf_render_slot():
+    """Bounds concurrent Typst compiles process-wide. A caller that can't get
+    a slot within the timeout raises TimeoutError instead of queuing
+    indefinitely behind an unbounded backlog."""
+    await asyncio.wait_for(_pdf_render_semaphore.acquire(), timeout=_PDF_RENDER_QUEUE_TIMEOUT_SECONDS)
+    try:
+        yield
+    finally:
+        _pdf_render_semaphore.release()
 
 
 def generate_presigned_url(key: str, expires_in: int = PRESIGNED_URL_EXPIRY_SECONDS) -> str:
