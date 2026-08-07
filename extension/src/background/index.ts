@@ -47,7 +47,14 @@ function errorMessage(err: unknown): string {
 // caller's chrome.runtime.sendMessage promise unresolved forever (observed:
 // an invalid download filename left the popup stuck on its loading state
 // indefinitely instead of surfacing an error).
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Defense-in-depth: this listener should only ever act on messages from
+  // this extension's own popup/content scripts. `sender.id` is always our
+  // own ID for a same-extension `onMessage` delivery today, but don't rely
+  // on that staying true implicitly — verify it, since this handler relays
+  // authenticated requests (API_REQUEST) and can open arbitrary tabs/URLs.
+  if (sender.id !== chrome.runtime.id) return undefined
+
   if (isOpenTabMessage(message)) {
     chrome.tabs
       .create({ url: message.url })

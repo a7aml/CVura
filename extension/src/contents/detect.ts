@@ -23,7 +23,10 @@ function isExtractJobMessage(message: unknown): message is ExtractJobMessage {
   return typeof message === "object" && message !== null && (message as Record<string, unknown>).type === "EXTRACT_JOB"
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Defense-in-depth, same rationale as background/index.ts's listener —
+  // only this extension's own contexts should be able to trigger a scrape.
+  if (sender.id !== chrome.runtime.id) return undefined
   if (!isExtractJobMessage(message)) return undefined
 
   extractForBoard(detectBoard())
