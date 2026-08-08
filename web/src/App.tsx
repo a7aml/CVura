@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom"
 
 import { checkSession } from "./lib/auth"
@@ -19,9 +19,17 @@ function AppShell() {
   const [user, setUser] = useState<User | null>(null)
   const location = useLocation()
   const isCallback = location.pathname === AUTH_CALLBACK_PATH
+  const ranRef = useRef(false)
 
   useEffect(() => {
     if (isCallback) return
+    // StrictMode double-invokes effects in dev; without this guard that fires
+    // checkSession() (-> /auth/refresh) twice near-simultaneously, and since
+    // refresh tokens are single-use, the loser trips reuse-detection and
+    // revokes every session for the user (see AuthCallbackPage's identical fix).
+    if (ranRef.current) return
+    ranRef.current = true
+
     checkSession().then((restoredUser) => {
       setUser(restoredUser)
       setStatus(restoredUser ? "authenticated" : "unauthenticated")
