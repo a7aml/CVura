@@ -72,7 +72,12 @@ async def google_login(
     return user
 
 
+# Higher than login/signup's 5/minute: unlike those, refresh fires on every
+# normal app/extension open and can legitimately repeat every few minutes
+# across tabs — 30/minute leaves headroom for that while still bounding a
+# buggy retry loop or abuse against this DB-writing endpoint.
 @router.post("/refresh", response_model=UserPublic)
+@limiter.limit("30/minute")
 async def refresh(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     refresh_token = request.cookies.get("refresh_token")
     if refresh_token is None:
